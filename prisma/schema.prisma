@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//ตารางข้อมูลหุ้น
+model Stock {
+  stock_symbol        String   @id @unique // ใช้ stock_symbol เป็น Primary Key
+  name                String   @unique
+  sector              String
+  corporate_tax_rate  Float
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  // ความสัมพันธ์
+  historicalPrices    HistoricalPrice[]
+  dividends           Dividend[]
+  transactions        Transaction[]
+  portfolio           Portfolio[]
+  predictions         Prediction[]
+}
+
+//ตารางข้อมูลผู้ใช้
+model User {
+  user_id           String   @id @default(cuid())
+  username          String   @unique
+  email             String   @unique
+  password          String
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // ความสัมพันธ์
+  userTaxInfo       UserTaxInfo[]
+  dividendReceiveds DividendReceived[]
+  transactions      Transaction[]
+  portfolio         Portfolio[]
+}
+
+//ตารางประวัติราคาหุ้น (ใช้ Composite Key)
+model HistoricalPrice {
+  stock_symbol String
+  price_date   DateTime
+  open_price   Float
+  high_price   Float
+  low_price    Float
+  close_price  Float
+  price_change Float?
+  percent_change Float?
+  volume_shares BigInt
+  volume_value BigInt
+
+  // ความสัมพันธ์
+  stock Stock @relation(fields: [stock_symbol], references: [stock_symbol])
+
+  @@id([stock_symbol, price_date])
+}
+
+//ตารางการประกาศปันผล
+model Dividend {
+  dividend_id       String    @id @default(cuid())
+  stock_symbol      String
+  announcement_date DateTime
+  ex_dividend_date  DateTime
+  record_date       DateTime
+  payment_date      DateTime
+  dividend_per_share Float
+  source_of_dividend String?
+  year_declared     Int? // เก็บปีที่ประกาศ
+
+  // ความสัมพันธ์
+  stock             Stock            @relation(fields: [stock_symbol], references: [stock_symbol])
+  dividendReceiveds DividendReceived[]
+}
+
+//ตารางบันทึกการซื้อขาย (ใช้ Composite Key ตามที่คุณกำหนด)
+model Transaction {
+  user_id           String
+  stock_symbol      String
+  transaction_date  DateTime
+  transaction_type  String
+  quantity          Int
+  price_per_share   Float
+  total_amount      Float
+  commission        Float
+  created_at        DateTime @default(now())
+
+  // ความสัมพันธ์
+  user              User     @relation(fields: [user_id], references: [user_id])
+  stock             Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
+
+  @@id([user_id, stock_symbol, transaction_date, transaction_type])
+}
+
+//ตารางปันผลที่ได้รับจริง
+model DividendReceived {
+  received_id         String   @id @default(cuid())
+  user_id             String
+  dividend_id         String
+  shares_held         Int
+  gross_dividend      Float
+  withholding_tax     Float
+  net_dividend_received Float
+  payment_received_date DateTime? // เพิ่มคอลัมน์นี้เพื่อความชัดเจน
+  created_at          DateTime @default(now())
+
+  // ความสัมพันธ์
+  user                User     @relation(fields: [user_id], references: [user_id])
+  dividend            Dividend @relation(fields: [dividend_id], references: [dividend_id])
+  taxCredit           TaxCredit? // Optional one-to-one
+}
+
+//ตารางเครดิตภาษี (ใช้ received_id เป็น FK)
+model TaxCredit {
+  credit_id             String   @id @default(cuid())
+  received_id           String   @unique // Foreign Key for one-to-one relation
+  tax_year              Int
+  corporate_tax_rate    Float
+  tax_credit_amount     Float
+  taxable_income        Float
+  user_tax_bracket      Float
+  tax_saving            Float?
+  is_used               Boolean  @default(false)
+
+  // ความสัมพันธ์
+  dividendReceived    DividendReceived @relation(fields: [received_id], references: [received_id])
+}
+
+//ตารางข้อมูลภาษีส่วนตัว (ใช้ Composite Key)
+model UserTaxInfo {
+  user_id               String
+  tax_year              Int
+  annual_income         Float
+  tax_bracket           Float
+  personal_deduction    Float
+  spouse_deduction      Float
+  child_deduction       Float
+  parent_deduction      Float
+  life_insurance_deduction Float
+  health_insurance_deduction Float
+  provident_fund_deduction Float
+  retirement_mutual_fund Float
+
+  // ความสัมพันธ์
+  user                  User     @relation(fields: [user_id], references: [user_id])
+
+  @@id([user_id, tax_year])
+}
+
+//ตารางการคาดการณ์ (ใช้ Composite Key)
+model Prediction {
+  stock_symbol             String
+  prediction_date          DateTime
+  predicted_ex_dividend_date DateTime?
+  predicted_payment_date   DateTime?
+  predicted_dividend_per_share Float?
+  predicted_dividend_yield Float?
+  predicted_price          Float?
+  expected_return          Float?
+  recommendation_type      String?
+  confidence_score         Int?
+  model_version            String?
+  prediction_horizon_days  Int?
+
+  // ความสัมพันธ์
+  stock                    Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
+
+  @@id([stock_symbol, prediction_date])
+}
+
+//Portfolio_Holdings View (เป็น Model ใน Prisma)
+model Portfolio {
+  user_id           String
+  stock_symbol      String
+  current_quantity  Int
+  total_invested    Float
+  average_cost      Float
+  last_transaction_date DateTime
+
+  // ความสัมพันธ์
+  user              User     @relation(fields: [user_id], references: [user_id])
+  stock             Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
+
+  @@id([user_id, stock_symbol])
+}
+
