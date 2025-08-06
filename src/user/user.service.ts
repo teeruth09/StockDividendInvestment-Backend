@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
-import { User,CreateUserDto } from './user.model';
+import { User, UserTaxInfoDto} from './user.model';
 import * as bcrypt from 'bcrypt';
 
 
@@ -16,21 +16,64 @@ export class UserService {
         return this.prisma.user.findUnique({ where: { username } });
     }
 
-    async createUser(data: CreateUserDto) {
-    console.log('createUser:', data); // เช็คว่ามีค่าอะไรส่งเข้ามา
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-
-    return this.prisma.user.create({
-      data: {
-        username: data.username,
-        email: data.email,
-        password: hashedPassword,
-      },
-    });
-}
-
     async updateUser(username: string, data: User): Promise<User> {
-        return this.prisma.user.update({ where: { id: String(username) }, data });
+        return this.prisma.user.update({ where: { username: String(username) }, data });
+    }
+
+    async getUserTaxInfo(userId: string, taxYear: number) {
+      try {
+        const res = await this.prisma.userTaxInfo.findUnique({
+          where: {
+            user_id_tax_year: {
+              user_id: userId,
+              tax_year: taxYear,
+            },
+          },
+        });
+        return res
+      } catch (error) {
+        console.log("test")
+        throw error; 
       }
+    }
+
+    async updateUserTaxInfo(userId: string, data: UserTaxInfoDto) {
+      const taxYear  = data.tax_year;
+      try {
+        const existing = await this.prisma.userTaxInfo.findUnique({
+          where: {
+            user_id_tax_year: {
+              user_id: userId,
+              tax_year: taxYear,
+            },
+          },
+        });
+
+        if (existing) {
+          //Update
+          return await this.prisma.userTaxInfo.update({
+            where: {
+              user_id_tax_year: {
+                user_id: userId,
+                tax_year: taxYear,
+              },
+            },
+            data,
+          });
+        } else {
+          //Create
+          return await this.prisma.userTaxInfo.create({
+            data: {
+              ...data,
+              user: {
+                connect: { user_id: userId },
+              },
+            },
+          });
+        }
+      } catch (error) {
+        throw error; 
+      }
+  }
 
 }

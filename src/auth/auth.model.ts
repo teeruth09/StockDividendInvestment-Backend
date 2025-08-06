@@ -1,20 +1,21 @@
-// import { Prisma } from "@prisma/client";
-// import { IsEmail, IsNotEmpty } from 'class-validator';
+import { Prisma } from "@prisma/client";
+import { IsEmail, IsNotEmpty } from 'class-validator';
 
-// export class User implements Prisma.UserCreateInput {
-//     id: string;
-//     username: string;
-//     email: string;
-//     password: string;
-// }
+export class CreateUserDto {
+  @IsNotEmpty()
+  username: string;
 
-// export class CreateUserDto {
-//   @IsNotEmpty()
-//   username: string;
+  @IsEmail()
+  email: string;
 
-//   @IsEmail()
-//   email: string;
+  @IsNotEmpty()
+  password: string;
+}
 
-//   @IsNotEmpty()
-//   password: string;
-// }
+export class LoginUserDto {
+  @IsNotEmpty()
+  username: string;
+
+  @IsNotEmpty()
+  password: string;
+}

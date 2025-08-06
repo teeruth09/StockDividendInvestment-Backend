@@ -133,16 +133,16 @@ model TaxCredit {
 model UserTaxInfo {
   user_id               String
   tax_year              Int
-  annual_income         Float
-  tax_bracket           Float
-  personal_deduction    Float
-  spouse_deduction      Float
-  child_deduction       Float
-  parent_deduction      Float
-  life_insurance_deduction Float
-  health_insurance_deduction Float
-  provident_fund_deduction Float
-  retirement_mutual_fund Float
+  annual_income         Float?
+  tax_bracket           Float?
+  personal_deduction    Float?
+  spouse_deduction      Float?
+  child_deduction       Float?
+  parent_deduction      Float?
+  life_insurance_deduction Float?
+  health_insurance_deduction Float?
+  provident_fund_deduction Float?
+  retirement_mutual_fund Float?
 
   // ความสัมพันธ์
   user                  User     @relation(fields: [user_id], references: [user_id])

@@ -1,20 +1,54 @@
 import { Prisma } from "@prisma/client";
-import { IsEmail, IsNotEmpty } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
 
 export class User implements Prisma.UserCreateInput {
-    id: string;
-    username: string;
-    email: string;
-    password: string;
+  user_id: string;
+  username: string;
+  email: string;
+  password: string;
 }
 
-export class CreateUserDto {
-  @IsNotEmpty()
-  username: string;
+export class UserTaxInfoDto {
+  @IsNumber()
+  tax_year: number;
 
-  @IsEmail()
-  email: string;
+  @IsNumber()
+  @IsOptional()
+  annual_income?: number;
 
-  @IsNotEmpty()
-  password: string;
+  @IsNumber()
+  @IsOptional()
+  tax_bracket?: number;
+
+  @IsNumber()
+  @IsOptional()
+  personal_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  spouse_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  child_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  parent_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  life_insurance_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  health_insurance_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  provident_fund_deduction?: number;
+
+  @IsNumber()
+  @IsOptional()
+  retirement_mutual_fund?: number;
 }
