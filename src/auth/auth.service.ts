@@ -23,7 +23,7 @@ export class AuthService {
     return null;
   }
 
-  async login(user: LoginUserDto): Promise<{username: string,access_token: string}> {
+  async login(user: LoginUserDto): Promise<{access_token: string}> {
     const res = await this.validateUser(user.username,user.password)
     if(!res){
         throw new UnauthorizedException('Invalid credentials');
