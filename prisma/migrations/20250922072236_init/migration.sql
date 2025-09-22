@@ -4,6 +4,7 @@ CREATE TABLE "Stock" (
     "name" TEXT NOT NULL,
     "sector" TEXT NOT NULL,
     "corporate_tax_rate" DOUBLE PRECISION NOT NULL,
+    "boi_support" BOOLEAN NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -48,7 +49,6 @@ CREATE TABLE "Dividend" (
     "payment_date" TIMESTAMP(3) NOT NULL,
     "dividend_per_share" DOUBLE PRECISION NOT NULL,
     "source_of_dividend" TEXT,
-    "year_declared" INTEGER,
 
     CONSTRAINT "Dividend_pkey" PRIMARY KEY ("dividend_id")
 );
@@ -87,11 +87,11 @@ CREATE TABLE "DividendReceived" (
 CREATE TABLE "TaxCredit" (
     "credit_id" TEXT NOT NULL,
     "received_id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
     "tax_year" INTEGER NOT NULL,
     "corporate_tax_rate" DOUBLE PRECISION NOT NULL,
     "tax_credit_amount" DOUBLE PRECISION NOT NULL,
     "taxable_income" DOUBLE PRECISION NOT NULL,
-    "user_tax_bracket" DOUBLE PRECISION NOT NULL,
     "tax_saving" DOUBLE PRECISION,
     "is_used" BOOLEAN NOT NULL DEFAULT false,
 
@@ -102,16 +102,16 @@ CREATE TABLE "TaxCredit" (
 CREATE TABLE "UserTaxInfo" (
     "user_id" TEXT NOT NULL,
     "tax_year" INTEGER NOT NULL,
-    "annual_income" DOUBLE PRECISION NOT NULL,
-    "tax_bracket" DOUBLE PRECISION NOT NULL,
-    "personal_deduction" DOUBLE PRECISION NOT NULL,
-    "spouse_deduction" DOUBLE PRECISION NOT NULL,
-    "child_deduction" DOUBLE PRECISION NOT NULL,
-    "parent_deduction" DOUBLE PRECISION NOT NULL,
-    "life_insurance_deduction" DOUBLE PRECISION NOT NULL,
-    "health_insurance_deduction" DOUBLE PRECISION NOT NULL,
-    "provident_fund_deduction" DOUBLE PRECISION NOT NULL,
-    "retirement_mutual_fund" DOUBLE PRECISION NOT NULL,
+    "annual_income" DOUBLE PRECISION,
+    "tax_bracket" DOUBLE PRECISION,
+    "personal_deduction" DOUBLE PRECISION,
+    "spouse_deduction" DOUBLE PRECISION,
+    "child_deduction" DOUBLE PRECISION,
+    "parent_deduction" DOUBLE PRECISION,
+    "life_insurance_deduction" DOUBLE PRECISION,
+    "health_insurance_deduction" DOUBLE PRECISION,
+    "provident_fund_deduction" DOUBLE PRECISION,
+    "retirement_mutual_fund" DOUBLE PRECISION,
 
     CONSTRAINT "UserTaxInfo_pkey" PRIMARY KEY ("user_id","tax_year")
 );
@@ -181,6 +181,9 @@ ALTER TABLE "DividendReceived" ADD CONSTRAINT "DividendReceived_dividend_id_fkey
 
 -- AddForeignKey
 ALTER TABLE "TaxCredit" ADD CONSTRAINT "TaxCredit_received_id_fkey" FOREIGN KEY ("received_id") REFERENCES "DividendReceived"("received_id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TaxCredit" ADD CONSTRAINT "TaxCredit_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("user_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "UserTaxInfo" ADD CONSTRAINT "UserTaxInfo_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("user_id") ON DELETE RESTRICT ON UPDATE CASCADE;

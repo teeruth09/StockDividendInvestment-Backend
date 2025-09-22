@@ -13,6 +13,7 @@ model Stock {
   name                String   @unique
   sector              String
   corporate_tax_rate  Float
+  boi_support         Boolean
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
@@ -38,6 +39,7 @@ model User {
   dividendReceiveds DividendReceived[]
   transactions      Transaction[]
   portfolio         Portfolio[]
+  taxCredits        TaxCredit[]
 }
 
 //ตารางประวัติราคาหุ้น (ใช้ Composite Key)
@@ -69,7 +71,6 @@ model Dividend {
   payment_date      DateTime
   dividend_per_share Float
   source_of_dividend String?
-  year_declared     Int? // เก็บปีที่ประกาศ
 
   // ความสัมพันธ์
   stock             Stock            @relation(fields: [stock_symbol], references: [stock_symbol])
@@ -117,16 +118,17 @@ model DividendReceived {
 model TaxCredit {
   credit_id             String   @id @default(cuid())
   received_id           String   @unique // Foreign Key for one-to-one relation
+  user_id               String
   tax_year              Int
   corporate_tax_rate    Float
   tax_credit_amount     Float
   taxable_income        Float
-  user_tax_bracket      Float
   tax_saving            Float?
   is_used               Boolean  @default(false)
 
   // ความสัมพันธ์
   dividendReceived    DividendReceived @relation(fields: [received_id], references: [received_id])
+  user                User             @relation(fields: [user_id], references: [user_id])
 }
 
 //ตารางข้อมูลภาษีส่วนตัว (ใช้ Composite Key)
