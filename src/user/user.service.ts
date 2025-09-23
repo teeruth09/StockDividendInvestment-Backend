@@ -32,7 +32,6 @@ export class UserService {
         });
         return res
       } catch (error) {
-        console.log("test")
         throw error; 
       }
     }

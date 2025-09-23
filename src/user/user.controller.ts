@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Delete,
   Get,
   NotFoundException,
   Param,
@@ -11,8 +10,6 @@ import {
   Query,
   Req,
   UseGuards,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { User, UserTaxInfoDto } from './user.model';

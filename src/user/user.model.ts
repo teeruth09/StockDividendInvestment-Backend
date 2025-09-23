@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
-import { IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { Prisma } from '@prisma/client';
+import { IsNumber, IsOptional } from 'class-validator';
 
 export class User implements Prisma.UserCreateInput {
   user_id: string;
