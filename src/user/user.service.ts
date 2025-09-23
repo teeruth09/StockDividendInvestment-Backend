@@ -75,5 +75,25 @@ export class UserService {
         throw error; 
       }
   }
+  async createInitTaxInfo(userId: string, year: number) {
+    return this.prisma.userTaxInfo.create({
+      data: {
+        tax_year: year,
+        annual_income: 0,
+        tax_bracket: 0,
+        personal_deduction: 0,
+        spouse_deduction: 0,
+        child_deduction: 0,
+        parent_deduction: 0,
+        life_insurance_deduction: 0,
+        health_insurance_deduction: 0,
+        provident_fund_deduction: 0,
+        retirement_mutual_fund: 0,
+        user: {
+          connect: { user_id: userId },
+        },
+      },
+    });
+  }
 
 }

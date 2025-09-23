@@ -44,6 +44,8 @@ export class AuthService {
           password: hashedPassword,
         },
       });
+      // สร้าง tax info ของปีล่าสุด (auto)
+      await this.userService.createInitTaxInfo(user.user_id, new Date().getFullYear());
       const payload = {sub: user.user_id ,username: user.username };
       const token = await this.jwtService.signAsync(payload);
       return { access_token: token }

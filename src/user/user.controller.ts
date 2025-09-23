@@ -48,6 +48,7 @@ export class UserController {
     return this.userService.updateUserTaxInfo(userId, body);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':username')
   async getUser(@Param('username') username: string): Promise<User> {
     const user = await this.userService.getUser(username);
