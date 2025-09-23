@@ -61,7 +61,8 @@ export class StockController {
     @Query('to') to?: string,
   ) {
     const { startDate, endDate } = this.parseDates(year, from, to);
-    return this.stockService.getHistoricalPrices(symbol, startDate, endDate);
+    const data = await this.stockService.getHistoricalPrices(symbol, startDate, endDate);
+    return this.serializeBigInt(data);
   }
 
   // =========================
@@ -111,6 +112,15 @@ export class StockController {
 
     return { startDate, endDate };
   }
+
+  private serializeBigInt(obj: any) {
+    return JSON.parse(
+        JSON.stringify(obj, (_, value) =>
+        typeof value === 'bigint' ? value.toString() : value,
+        )
+    );
+  }
+
 
   // 4. เพิ่มหุ้นใหม่
   @Post()

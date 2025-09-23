@@ -44,3 +44,11 @@ export class UpdateStockDto {
   @IsBoolean()
   boi_support?: boolean;
 }
+
+//map yahoo finance
+export const YF_SYMBOL_MAP: Record<string, string> = {
+  ADVANC: 'ADVANC.BK',
+  PTT: 'PTT.BK',
+  AOT: 'AOT.BK',
+};
+
