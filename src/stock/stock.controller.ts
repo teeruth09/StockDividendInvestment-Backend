@@ -11,7 +11,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { StockService } from './stock.service';
-import { CreateStockDto, UpdateStockDto } from './stock.model';
+import { CreateStockDto, Stock, UpdateStockDto } from './stock.model';
 
 @Controller('stock')
 export class StockController {
@@ -19,8 +19,9 @@ export class StockController {
 
   // 1. รายการหุ้นทั้งหมด
   @Get('stocks')
-  async getAllStocks(@Query('sector') sector?: string) {
-    return this.stockService.getAllStocks(sector);
+  async getAllStocks(@Query('sector') sector?: string): Promise<Stock[]> {
+    const stocks = await this.stockService.getAllStocks(sector);
+    return this.serializeBigInt(stocks);
   }
 
   // 2. รายละเอียดหุ้น
@@ -30,7 +31,7 @@ export class StockController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('year') year?: string, // รองรับ year filter ด้วย
-  ) {
+  ): Promise<Stock> {
     let startDate: Date | undefined = undefined;
     let endDate: Date | undefined = undefined;
 

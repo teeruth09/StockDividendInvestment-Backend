@@ -1,5 +1,5 @@
 import { IsNumber, IsOptional, IsString, IsBoolean } from 'class-validator';
-
+import { Dividend, Prediction } from 'src/dividend/dividend.model';
 export class Stock {
   stock_symbol: string;
   name: string;
@@ -8,6 +8,10 @@ export class Stock {
   boi_support: boolean;
   created_at: Date;
   updated_at: Date;
+
+  historicalPrices?: HistoricalPrice[];
+  dividends?: Dividend[];
+  predictions?: Prediction[];
 }
 
 // DTO สำหรับสร้าง/อัปเดตหุ้น
@@ -52,3 +56,15 @@ export const YF_SYMBOL_MAP: Record<string, string> = {
   AOT: 'AOT.BK',
 };
 
+export class HistoricalPrice {
+  stock_symbol: string;
+  price_date: Date;
+  open_price: number;
+  high_price: number;
+  low_price: number;
+  close_price: number;
+  price_change?: number | null;
+  percent_change?: number | null;
+  volume_shares: number;
+  volume_value: number;
+}

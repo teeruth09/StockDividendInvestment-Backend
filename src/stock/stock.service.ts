@@ -1,9 +1,16 @@
 // src/stocks/stock.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
-import { CreateStockDto, UpdateStockDto, YF_SYMBOL_MAP } from './stock.model';
+import {
+  CreateStockDto,
+  HistoricalPrice,
+  Stock,
+  UpdateStockDto,
+  YF_SYMBOL_MAP,
+} from './stock.model';
 import yahooFinance from 'yahoo-finance2';
 import * as NodeCache from 'node-cache';
+import { Dividend } from 'src/dividend/dividend.model';
 
 @Injectable()
 export class StockService {
@@ -13,15 +20,49 @@ export class StockService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ดึงหุ้นทั้งหมด (optionally filter by sector)
-  async getAllStocks(sector?: string) {
-    return this.prisma.stock.findMany({
+  async getAllStocks(sector?: string): Promise<Stock[]> {
+    const stocks = await this.prisma.stock.findMany({
       where: sector ? { sector } : undefined,
       orderBy: { stock_symbol: 'asc' },
+      include: {
+        historicalPrices: { take: 1, orderBy: { price_date: 'desc' } },
+        dividends: { take: 1, orderBy: { announcement_date: 'desc' } },
+        predictions: { take: 1, orderBy: { prediction_date: 'desc' } },
+      },
     });
+
+    // แปลง BigInt → number
+    return stocks.map((stock) => ({
+      ...stock,
+      historicalPrices: stock.historicalPrices?.map((p) => ({
+        ...p,
+        price_change: p.price_change ?? 0,
+        percent_change: p.percent_change ?? 0,
+        volume_shares: Number(p.volume_shares),
+        volume_value: Number(p.volume_value),
+      })),
+      dividends: stock.dividends?.map((d) => ({
+        ...d,
+        source_of_dividend: d.source_of_dividend ?? '', // แปลง null → empty string
+      })),
+      predictions: stock.predictions?.map((p) => ({
+        ...p,
+        predicted_dividend_yield: p.predicted_dividend_yield ?? 0, // null → 0
+        predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
+        predicted_price: p.predicted_price ?? 0,
+        expected_return: p.expected_return ?? 0,
+        confidence_score: p.confidence_score ?? 0,
+        prediction_horizon_days: p.prediction_horizon_days ?? 0,
+      })),
+    }));
   }
 
   // ดึงรายละเอียดหุ้น 1 ตัว
-  async getStockData(symbol: string, startDate?: Date, endDate?: Date) {
+  async getStockData(
+    symbol: string,
+    startDate?: Date,
+    endDate?: Date,
+  ): Promise<Stock> {
     const stock = await this.prisma.stock.findUnique({
       where: { stock_symbol: symbol },
       include: {
@@ -65,14 +106,37 @@ export class StockService {
     });
 
     if (!stock) throw new NotFoundException(`Stock ${symbol} not found`);
-    return stock;
+    // แปลง BigInt → number และ handle null
+    return {
+      ...stock,
+      historicalPrices: stock.historicalPrices?.map((p) => ({
+        ...p,
+        price_change: p.price_change ?? 0,
+        percent_change: p.percent_change ?? 0,
+        volume_shares: Number(p.volume_shares),
+        volume_value: Number(p.volume_value),
+      })),
+      dividends: stock.dividends?.map((d) => ({
+        ...d,
+        source_of_dividend: d.source_of_dividend ?? '',
+      })),
+      predictions: stock.predictions?.map((p) => ({
+        ...p,
+        predicted_dividend_yield: p.predicted_dividend_yield ?? 0,
+        predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
+        predicted_price: p.predicted_price ?? 0,
+        expected_return: p.expected_return ?? 0,
+        confidence_score: p.confidence_score ?? 0,
+        prediction_horizon_days: p.prediction_horizon_days ?? 0,
+      })),
+    };
   }
 
   // =========================
   // 1. Historical Prices
   // Fetch Historical Prices (DB first, fallback Yahoo Finance)
   // =========================
-  async getHistoricalPrices(symbol: string, startDate?: Date, endDate?: Date) {
+  async getHistoricalPrices(symbol: string, startDate?: Date, endDate?: Date): Promise<HistoricalPrice> {
     if (!startDate || !endDate) {
       throw new NotFoundException('startDate and endDate are required');
     }
@@ -130,7 +194,7 @@ export class StockService {
                 BigInt(item.volume) * BigInt(Math.round(item.close)),
             };
           });
-        console.log("print",yfDataMapped) //print ค่าที่ยังไม่เก็บลง db
+        console.log('print', yfDataMapped); //print ค่าที่ยังไม่เก็บลง db
 
         // Save new Yahoo data to DB
         if (yfDataMapped.length > 0) {
@@ -148,7 +212,7 @@ export class StockService {
 
     // 3️⃣ Merge DB + Yahoo (filtered)
     const combined = [...dbPrices, ...yfDataMapped].sort(
-        (a, b) => b.price_date.getTime() - a.price_date.getTime(),
+      (a, b) => b.price_date.getTime() - a.price_date.getTime(),
     );
 
     // 4️⃣ Serialize BigInt for JSON
@@ -162,7 +226,7 @@ export class StockService {
   // =========================
   // 2. Dividends
   // =========================
-  async getDividends(symbol: string, startDate?: Date, endDate?: Date) {
+  async getDividends(symbol: string, startDate?: Date, endDate?: Date): Promise<Dividend[]> {
     const stock = await this.prisma.stock.findUnique({
       where: { stock_symbol: symbol },
       include: {
@@ -176,7 +240,10 @@ export class StockService {
       },
     });
     if (!stock) throw new NotFoundException(`Stock ${symbol} not found`);
-    return stock.dividends;
+    return stock.dividends.map((d) => ({
+      ...d,
+      source_of_dividend: d.source_of_dividend ?? '',
+    }));
   }
 
   // =========================
