@@ -143,4 +143,18 @@ export class StockController {
   async deleteStock(@Param('symbol') symbol: string) {
     return this.stockService.deleteStock(symbol);
   }
+
+  @Get(':symbol/prices/chart')
+  async getStockPricesChart(
+    @Param('symbol') symbol: string,
+    @Query('interval') interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' = '1D',
+  ) {
+    const data = await this.stockService.getHistoricalPricesForChart(
+      symbol,
+      interval,
+    );
+    console.log(`${symbol}/prices/chart`)
+    console.log(data)
+    return data;
+  }
 }

@@ -285,4 +285,70 @@ export class StockService {
       where: { stock_symbol: symbol },
     });
   }
+
+   /**
+   * Fetch Historical Prices for Chart
+   * @param symbol - Stock symbol
+   * @param interval - '1D', '5D', '1M', '3M', '6M', '1Y'
+   */
+  async getHistoricalPricesForChart(
+    symbol: string,
+    interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' = '1D',
+  ) {
+    const endDate = new Date();
+    const startDate = new Date();
+
+    // แปลง interval เป็นจำนวนวันย้อนหลัง
+    switch (interval) {
+      case '1D':
+        startDate.setDate(endDate.getDate() - 1);
+        break;
+      case '5D':
+        startDate.setDate(endDate.getDate() - 5);
+        break;
+      case '1M':
+        startDate.setMonth(endDate.getMonth() - 1);
+        break;
+      case '3M':
+        startDate.setMonth(endDate.getMonth() - 3);
+        break;
+      case '6M':
+        startDate.setMonth(endDate.getMonth() - 6);
+        break;
+      case '1Y':
+        startDate.setFullYear(endDate.getFullYear() - 1);
+        break;
+      case '3Y':
+        startDate.setFullYear(endDate.getFullYear() - 1);
+        break;
+      default:
+        startDate.setDate(endDate.getDate() - 1);
+    }
+    const upperSymbol = symbol.toUpperCase();
+
+    // Query DB ข้อมูลดิบในช่วง
+    const data = await this.prisma.historicalPrice.findMany({
+      where: {
+        stock_symbol: upperSymbol,
+        price_date: { gte: startDate, lte: endDate },
+      },
+      orderBy: { price_date: 'asc' }, // Ascending เพื่อใช้ chart
+    });
+
+    // Serialize BigInt → string
+    return data.map((p) => ({
+      stock_symbol: p.stock_symbol,
+      price_date: p.price_date,
+      open_price: p.open_price,
+      high_price: p.high_price,
+      low_price: p.low_price,
+      close_price: p.close_price,
+      price_change: p.price_change,
+      percent_change: p.percent_change,
+      volume_shares: p.volume_shares.toString(),
+      volume_value: p.volume_value.toString(),
+    }));
+  }
+
+
 }
