@@ -62,7 +62,11 @@ export class StockController {
     @Query('to') to?: string,
   ) {
     const { startDate, endDate } = this.parseDates(year, from, to);
-    const data = await this.stockService.getHistoricalPrices(symbol, startDate, endDate);
+    const data = await this.stockService.getHistoricalPrices(
+      symbol,
+      startDate,
+      endDate,
+    );
     return this.serializeBigInt(data);
   }
 
@@ -116,12 +120,11 @@ export class StockController {
 
   private serializeBigInt(obj: any) {
     return JSON.parse(
-        JSON.stringify(obj, (_, value) =>
+      JSON.stringify(obj, (_, value) =>
         typeof value === 'bigint' ? value.toString() : value,
-        )
+      ),
     );
   }
-
 
   // 4. เพิ่มหุ้นใหม่
   @Post()
@@ -147,14 +150,22 @@ export class StockController {
   @Get(':symbol/prices/chart')
   async getStockPricesChart(
     @Param('symbol') symbol: string,
-    @Query('interval') interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' = '1D',
+    @Query('interval') interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' = '1D',
   ) {
     const data = await this.stockService.getHistoricalPricesForChart(
       symbol,
       interval,
     );
-    console.log(`${symbol}/prices/chart`)
-    console.log(data)
+    // console.log(`${symbol}/prices/chart`);
+    // console.log(data);
     return data;
+  }
+
+  @Get(':symbol/summary')
+  async getStockSummary(@Param('symbol') symbol: string) {
+    const summary = await this.stockService.getPriceChangeSummary(symbol);
+    // console.log(`${symbol}/summary`);
+    // console.log(summary);
+    return summary;
   }
 }

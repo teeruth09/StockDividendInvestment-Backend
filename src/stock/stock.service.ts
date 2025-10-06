@@ -136,7 +136,11 @@ export class StockService {
   // 1. Historical Prices
   // Fetch Historical Prices (DB first, fallback Yahoo Finance)
   // =========================
-  async getHistoricalPrices(symbol: string, startDate?: Date, endDate?: Date): Promise<HistoricalPrice> {
+  async getHistoricalPrices(
+    symbol: string,
+    startDate?: Date,
+    endDate?: Date,
+  ): Promise<HistoricalPrice> {
     if (!startDate || !endDate) {
       throw new NotFoundException('startDate and endDate are required');
     }
@@ -226,7 +230,11 @@ export class StockService {
   // =========================
   // 2. Dividends
   // =========================
-  async getDividends(symbol: string, startDate?: Date, endDate?: Date): Promise<Dividend[]> {
+  async getDividends(
+    symbol: string,
+    startDate?: Date,
+    endDate?: Date,
+  ): Promise<Dividend[]> {
     const stock = await this.prisma.stock.findUnique({
       where: { stock_symbol: symbol },
       include: {
@@ -286,57 +294,69 @@ export class StockService {
     });
   }
 
-   /**
+  /**
    * Fetch Historical Prices for Chart
    * @param symbol - Stock symbol
    * @param interval - '1D', '5D', '1M', '3M', '6M', '1Y'
    */
   async getHistoricalPricesForChart(
     symbol: string,
-    interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' = '1D',
+    interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' = '1D',
   ) {
-    const endDate = new Date();
-    const startDate = new Date();
-
-    // แปลง interval เป็นจำนวนวันย้อนหลัง
-    switch (interval) {
-      case '1D':
-        startDate.setDate(endDate.getDate() - 1);
-        break;
-      case '5D':
-        startDate.setDate(endDate.getDate() - 5);
-        break;
-      case '1M':
-        startDate.setMonth(endDate.getMonth() - 1);
-        break;
-      case '3M':
-        startDate.setMonth(endDate.getMonth() - 3);
-        break;
-      case '6M':
-        startDate.setMonth(endDate.getMonth() - 6);
-        break;
-      case '1Y':
-        startDate.setFullYear(endDate.getFullYear() - 1);
-        break;
-      case '3Y':
-        startDate.setFullYear(endDate.getFullYear() - 1);
-        break;
-      default:
-        startDate.setDate(endDate.getDate() - 1);
-    }
     const upperSymbol = symbol.toUpperCase();
-
-    // Query DB ข้อมูลดิบในช่วง
-    const data = await this.prisma.historicalPrice.findMany({
-      where: {
-        stock_symbol: upperSymbol,
-        price_date: { gte: startDate, lte: endDate },
-      },
-      orderBy: { price_date: 'asc' }, // Ascending เพื่อใช้ chart
+    // โหลดข้อมูลเรียงจากล่าสุดไปเก่าสุดก่อน
+    const allPrices = await this.prisma.historicalPrice.findMany({
+      where: { stock_symbol: upperSymbol },
+      orderBy: { price_date: 'desc' },
     });
 
+    if (!allPrices.length) return [];
+
+    let filtered: typeof allPrices = [];
+    const latestDate = new Date(allPrices[0].price_date); // วันที่ล่าสุดใน DB
+    const rangeStart = new Date(latestDate);
+
+    // คำนวณช่วงเวลาถอยจากวันที่ล่าสุด
+    switch (interval) {
+      case '1D':
+        filtered = allPrices.slice(0, 1); // วันล่าสุด
+        break;
+      case '5D':
+        // เอา 5 แถวล่าสุด (5 วันทำการ)
+        filtered = allPrices.slice(0, 5);
+        break;
+      case '1M':
+        rangeStart.setMonth(latestDate.getMonth() - 1);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      case '3M':
+        rangeStart.setMonth(latestDate.getMonth() - 3);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      case '6M':
+        rangeStart.setMonth(latestDate.getMonth() - 6);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      case '1Y':
+        rangeStart.setFullYear(latestDate.getFullYear() - 1);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      case '3Y':
+        rangeStart.setFullYear(latestDate.getFullYear() - 3);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      case '5Y':
+        rangeStart.setFullYear(latestDate.getFullYear() - 5);
+        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        break;
+      default:
+        filtered = allPrices.slice(0, 1);
+    }
+    // เรียงกลับเป็นเก่าสุด -> ใหม่สุด เพื่อใช้กับ chart
+    filtered = filtered.reverse();
+
     // Serialize BigInt → string
-    return data.map((p) => ({
+    return filtered.map((p) => ({
       stock_symbol: p.stock_symbol,
       price_date: p.price_date,
       open_price: p.open_price,
@@ -350,5 +370,106 @@ export class StockService {
     }));
   }
 
+  /**
+   * Fetch Percent Change Summary
+   * @param symbol - Stock symbol
+   */
+  async getPriceChangeSummary(symbol: string) {
+    const upperSymbol = symbol.toUpperCase();
 
+    // Type ของ historicalPrice
+    type HistoricalPrice = {
+      stock_symbol: string;
+      price_date: Date;
+      open_price: number;
+      high_price: number;
+      low_price: number;
+      close_price: number;
+      price_change: number | null;
+      percent_change: number | null;
+      volume_shares: bigint;
+      volume_value: bigint;
+    };
+
+    // โหลดข้อมูลทั้งหมด เรียงจากใหม่ -> เก่า
+    const prices: HistoricalPrice[] =
+      await this.prisma.historicalPrice.findMany({
+        where: { stock_symbol: upperSymbol },
+        orderBy: { price_date: 'desc' },
+      });
+
+    if (!prices.length) return null;
+
+    const latestObj = prices[0];
+    const latest = latestObj.close_price;
+    const latestDate = new Date(latestObj.price_date);
+
+    // helper: หาแถวแรกที่ price_date <= targetDate (prices เป็น desc)
+    const findClosestBeforeOrEqual = (
+      targetDate: Date,
+    ): HistoricalPrice | null => {
+      for (const p of prices) {
+        if (new Date(p.price_date) <= targetDate) return p;
+      }
+      return prices.length ? prices[prices.length - 1] : null;
+    };
+
+    const result: Record<string, any> = {};
+
+    // interval spec
+    const specs = {
+      '1D': { type: 'tradingDays', days: 1 },
+      '5D': { type: 'tradingDays', days: 5 },
+      '1M': { type: 'calendar', months: 1 },
+      '3M': { type: 'calendar', months: 3 },
+      '6M': { type: 'calendar', months: 6 },
+      '1Y': { type: 'calendar', years: 1 },
+      '3Y': { type: 'calendar', years: 3 },
+      '5Y': { type: 'calendar', years: 5 },
+    } as const;
+
+    for (const [key, spec] of Object.entries(specs)) {
+      let startObj: HistoricalPrice | null = null;
+
+      if (spec.type === 'tradingDays') {
+        const idx = Math.min(spec.days, prices.length) - 1;
+        startObj = prices[idx] ?? null;
+      } else {
+        // calendar-based
+        const target = new Date(latestDate);
+        if ('months' in spec) target.setMonth(target.getMonth() - spec.months);
+        if ('years' in spec)
+          target.setFullYear(target.getFullYear() - spec.years);
+        startObj = findClosestBeforeOrEqual(target);
+      }
+
+      if (!startObj) continue;
+      const startClose = startObj.close_price;
+      if (!startClose || startClose === 0) continue;
+
+      const percent = ((latest - startClose) / startClose) * 100;
+
+      result[key] = {
+        from: startObj.price_date,
+        to: latestObj.price_date,
+        startClose,
+        endClose: latest,
+        percentChange: Number(percent.toFixed(2)),
+      };
+    }
+
+    const stock = await this.prisma.stock.findUnique({
+      where: { stock_symbol: symbol },
+    });
+    if (!stock) {
+      throw new Error(`Stock ${symbol} not found`);
+    }
+
+    return {
+      symbol: upperSymbol,
+      name: stock.name,
+      latestPrice: latest,
+      summary: result,
+    };
+  }
 }
