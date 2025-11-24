@@ -54,6 +54,19 @@ export class StockController {
   // =========================
   // 1. Historical Prices
   // =========================
+
+  @Get(':symbol/price-by-date')
+  async getPriceByDate(
+    @Param('symbol') symbol: string,
+    @Query('date') dateString: string, // รับวันที่เป็น Query Parameter
+  ): Promise<{ price: number }> {
+    if (!dateString) {
+      throw new BadRequestException('Date query parameter is required.');
+    }
+    const price = await this.stockService.getPriceByDate(symbol, dateString);
+    return { price };
+  }
+
   @Get(':symbol/prices')
   async getStockPrices(
     @Param('symbol') symbol: string,

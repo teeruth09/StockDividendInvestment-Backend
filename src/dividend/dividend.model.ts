@@ -1,3 +1,4 @@
+import { TaxCredit } from '../taxCredit/taxCredt.model';
 export class Dividend {
   dividend_id: string;
   stock_symbol: string;
@@ -8,7 +9,22 @@ export class Dividend {
   dividend_per_share: number;
   source_of_dividend?: string | null;
 }
+export class DividendReceived {
+  received_id: string;
+  user_id: string;
+  dividend_id: string;
+  shares_held: number;
+  gross_dividend: number;
+  withholding_tax: number;
+  net_dividend_received: number;
+  payment_received_date?: Date | null;
+  created_at: Date;
 
+  // ความสัมพันธ์ (Optional fields)
+  // user?: User;
+  dividend?: Dividend;
+  taxCredit?: TaxCredit | null;
+}
 export class Prediction {
   stock_symbol: string;
   prediction_date: Date;

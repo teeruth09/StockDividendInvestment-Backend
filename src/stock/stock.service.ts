@@ -1,5 +1,5 @@
 // src/stocks/stock.service.ts
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import {
   CreateStockDto,
@@ -134,13 +134,56 @@ export class StockService {
 
   // =========================
   // 1. Historical Prices
+
+  // NEW: ดึงราคาปิดของหุ้น ณ วันที่กำหนด
+  // [GET] /stock/:symbol/price-by-date?date=YYYY-MM-DD
+  // ===================================
+  async getPriceByDate(symbol: string, dateString: string): Promise<number> {
+    // 1. แปลง Date String ให้เป็น Date Object
+    const targetDate = new Date(dateString);
+    if (isNaN(targetDate.getTime())) {
+      throw new BadRequestException(
+        'Invalid date format. Please use YYYY-MM-DD.',
+      );
+    }
+
+    // 2. กำหนดช่วงเวลา (จากวันที่นั้นถึงวันที่นั้น)
+    // เพื่อใช้ประโยชน์จาก HistoricalPrice Logic เดิม
+    const startDate = new Date(targetDate.setHours(0, 0, 0, 0));
+    const endDate = new Date(targetDate.setHours(23, 59, 59, 999));
+
+    // 3. เรียกใช้ฟังก์ชันดึงราคาย้อนหลังที่ครอบคลุมการดึงจาก Yahoo ด้วย
+    const prices: any[] = await this.getHistoricalPrices(
+      // 💡 Note: ต้องเปลี่ยน type return ของ getHistoricalPrices เป็น array
+      symbol,
+      startDate,
+      endDate,
+    );
+
+    // 4. ค้นหาราคาปิด ณ วันที่ระบุ
+    const priceRecord = prices.find(
+      (p) =>
+        new Date(p.price_date).toDateString() === targetDate.toDateString(),
+    );
+
+    if (!priceRecord) {
+      // ถ้าไม่พบราคา ณ วันที่นั้น (อาจเป็นวันหยุดตลาด)
+      throw new NotFoundException(
+        `Historical price not found for ${symbol} on ${dateString}.`,
+      );
+    }
+
+    // 5. ส่งค่า Close Price กลับไป
+    return priceRecord.close_price as number;
+  }
+
   // Fetch Historical Prices (DB first, fallback Yahoo Finance)
   // =========================
   async getHistoricalPrices(
     symbol: string,
     startDate?: Date,
     endDate?: Date,
-  ): Promise<HistoricalPrice> {
+  ): Promise<HistoricalPrice[]> {
     if (!startDate || !endDate) {
       throw new NotFoundException('startDate and endDate are required');
     }

@@ -71,6 +71,8 @@ model Dividend {
   payment_date      DateTime
   dividend_per_share Float
   source_of_dividend String?
+  calculation_status String @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  calculated_at      DateTime?
 
   // ความสัมพันธ์
   stock             Stock            @relation(fields: [stock_symbol], references: [stock_symbol])
@@ -93,7 +95,7 @@ model Transaction {
   user              User     @relation(fields: [user_id], references: [user_id])
   stock             Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
 
-  @@id([user_id, stock_symbol, transaction_date, transaction_type])
+  @@id([user_id, stock_symbol, created_at, transaction_type])
 }
 
 //ตารางปันผลที่ได้รับจริง
@@ -101,10 +103,10 @@ model DividendReceived {
   received_id         String   @id @default(cuid())
   user_id             String
   dividend_id         String
-  shares_held         Int
-  gross_dividend      Float
-  withholding_tax     Float
-  net_dividend_received Float
+  shares_held         Int  //จำนวนหุ้นที่ถือไว้ในวัน record
+  gross_dividend      Float //ปันผลรวก่อนหักภาษี
+  withholding_tax     Float //ภาษีที่หัก 10% ไว้
+  net_dividend_received Float //ปันผลสุทธิที่ได้รับ
   payment_received_date DateTime? // เพิ่มคอลัมน์นี้เพื่อความชัดเจน
   created_at          DateTime @default(now())
 
