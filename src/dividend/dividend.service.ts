@@ -28,79 +28,6 @@ export class DividendService {
    * @param dividendId ID ของการประกาศปันผล
    * @returns Array ของรายการปันผลที่ถูกบันทึก
    */
-  //   async calculateAndCreateReceivedDividends(
-  //     dividendId: string,
-  //   ): Promise<DividendReceivedModel[]> {
-  //     const dividendInfo = await this.prisma.dividend.findUnique({
-  //       where: { dividend_id: dividendId },
-  //     });
-
-  //     if (!dividendInfo) {
-  //       throw new NotFoundException(`Dividend ID ${dividendId} not found.`);
-  //     }
-
-  //     const { stock_symbol, record_date, dividend_per_share } = dividendInfo;
-
-  //     // 1. ดึงผู้ใช้ทั้งหมดที่เคยทำรายการซื้อ/ขายหุ้นตัวนี้
-  //     const uniqueUsers = await this.prisma.transaction.findMany({
-  //       where: { stock_symbol },
-  //       select: { user_id: true },
-  //       distinct: ['user_id'],
-  //     });
-
-  //     const receivedDividends: DividendReceivedModel[] = [];
-
-  //     // 2. วนลูปคำนวณสิทธิ์ให้ผู้ใช้แต่ละราย
-  //     for (const { user_id } of uniqueUsers) {
-  //       // 3. ตรวจสอบจำนวนหุ้นสุทธิที่ถือครอง ณ Record Date
-  //       const sharesAtRecordDate =
-  //         await this.portfolioService.getSharesHeldOnDate(
-  //           user_id,
-  //           stock_symbol,
-  //           record_date,
-  //         );
-
-  //       // 4. ถ้ามียอดหุ้นที่ถือครองในวัน Record Date และปันผลต่อหุ้นมากกว่า 0
-  //       if (sharesAtRecordDate > 0 && dividend_per_share > 0) {
-  //         // 5. คำนวณยอดปันผล
-  //         const grossDividend = sharesAtRecordDate * dividend_per_share;
-
-  //         // 💡 สมมติอัตราภาษีหัก ณ ที่จ่าย 10% (ตามมาตรา 50(2))
-  //         const withholdingTaxRate = 0.1;
-  //         const withholdingTax = grossDividend * withholdingTaxRate;
-  //         const netDividendReceived = grossDividend - withholdingTax;
-
-  //         // 6. บันทึกรายการปันผลที่ได้รับจริง
-  //         const record = (await this.prisma.dividendReceived.create({
-  //           data: {
-  //             user_id,
-  //             dividend_id: dividendId,
-  //             shares_held: sharesAtRecordDate,
-  //             gross_dividend: grossDividend,
-  //             withholding_tax: withholdingTax,
-  //             net_dividend_received: netDividendReceived,
-  //             payment_received_date: dividendInfo.payment_date,
-  //             created_at: new Date(),
-  //           },
-  //         })) as DividendReceivedModel;
-
-  //         receivedDividends.push(record);
-
-  //         // 7. Trigger คำนวณเครดิตภาษี (Tax Credit)
-  //         try {
-  //           await this.taxCreditService.calculateTaxCredit(record.received_id);
-  //         } catch (error) {
-  //           console.error(
-  //             `Failed to calculate tax credit for Received ID ${record.received_id}:`,
-  //             error,
-  //           );
-  //           // 💡 สามารถเลือกว่าจะโยน Error หรือแค่ Log แล้วให้ Process ดำเนินต่อไป
-  //         }
-  //       }
-  //     }
-
-  //     return receivedDividends;
-  //   }
   async calculateAndCreateReceivedDividends(
     dividendId: string,
   ): Promise<DividendReceivedModel[]> {
@@ -244,5 +171,14 @@ export class DividendService {
     });
 
     return received as DividendReceivedModel[];
+  }
+
+  //up comming xd
+  async findUpcomingDividends(limit: number): Promise<DividendModel[]> {
+    return this.prisma.dividend.findMany({
+      where: { payment_date: { gt: new Date() } },
+      orderBy: { payment_date: 'asc' },
+      take: limit, // แสดง x รายการที่กำลังจะมาถึง
+    });
   }
 }

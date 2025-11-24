@@ -43,6 +43,7 @@ export class DividendController {
   // ********************************************************
   // [GET] /dividends/received/:userId
   @Get('received/:userId')
+  @UseGuards(JwtAuthGuard)
   async findReceivedHistory(
     // 💡 ใน Production ควรใช้ @CurrentUser('userId') แทน @Param
     @Param('userId') userId: string,

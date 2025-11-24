@@ -1,5 +1,10 @@
 // src/stocks/stock.service.ts
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import {
   CreateStockDto,
@@ -268,6 +273,44 @@ export class StockService {
         typeof value === 'bigint' ? value.toString() : value,
       ),
     );
+  }
+
+  /**
+   * ดึงราคาปิดล่าสุดของหุ้นหลายตัว
+   * @param symbols Array ของสัญลักษณ์หุ้น
+   * @returns Object map: { [stock_symbol]: latest_close_price }
+   */
+  async getCurrentPrices(symbols: string[]): Promise<Record<string, number>> {
+    // 1. ดึงข้อมูลหุ้นเฉพาะที่ต้องการ พร้อมราคาล่าสุด
+    const stocksWithLatestPrice = await this.prisma.stock.findMany({
+      where: {
+        stock_symbol: {
+          in: symbols.map((s) => s.toUpperCase()), // ค้นหาเฉพาะ Symbol ที่ส่งเข้ามา
+        },
+      },
+      include: {
+        // ดึงราคาล่าสุดเพียง 1 แถว
+        historicalPrices: { take: 1, orderBy: { price_date: 'desc' } },
+      },
+    });
+
+    const currentPricesMap: Record<string, number> = {};
+
+    // 2. วนลูปเพื่อดึงราคาปิดล่าสุด
+    for (const stock of stocksWithLatestPrice) {
+      const latestPrice = stock.historicalPrices?.[0]?.close_price;
+
+      // 3. จัดเก็บใน Map
+      if (latestPrice !== undefined && latestPrice !== null) {
+        currentPricesMap[stock.stock_symbol] = latestPrice;
+      } else {
+        // 💡 ถ้าไม่พบราคา อาจจะใส่ 0 หรือ Log Warning ขึ้นอยู่กับ business requirement
+        currentPricesMap[stock.stock_symbol] = 0;
+        console.warn(`Price not found for stock: ${stock.stock_symbol}`);
+      }
+    }
+
+    return currentPricesMap;
   }
 
   // =========================
