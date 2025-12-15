@@ -15,6 +15,7 @@ import {
   TransactionInput,
   TransactionType,
 } from './transaction.model';
+import { UserId } from 'src/auth/decorators/user-id.decorator';
 
 @Controller('transactions')
 @UseGuards(JwtAuthGuard)
@@ -47,6 +48,33 @@ export class TransactionController {
       transactionData,
       TransactionType.SELL, // ส่ง Type เป็น SELL
     );
+  }
+
+  // **********************************************
+  // 3. ดูประวัติรายการ (Get User Transaction List)
+  // [GET] /transactions
+  // **********************************************
+  @Get()
+  async findAllUserTransactions(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+    @Query('symbol') symbol?: string,
+    @Query('type') type?: string,
+  ): Promise<Transaction[]> {
+    // ส่ง userId ที่ได้จาก Token ไปให้ Service
+    return this.transactionService.findAll(userId, { symbol, type });
+  }
+
+  // **********************************************
+  // 4. ดูรายละเอียดรายการเดียว (Get Single Transaction)
+  // [GET] /transactions/:id
+  // **********************************************
+  @Get(':id')
+  async findOne(
+    @UserId() userId: string,
+    @Param('id') transactionId: string,
+  ): Promise<Transaction> {
+    // Service ต้องตรวจสอบว่า transactionId นี้เป็นของ userId นี้จริงหรือไม่!
+    return this.transactionService.findOne(transactionId, userId);
   }
 
   //   // **********************************************

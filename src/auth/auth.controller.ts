@@ -8,11 +8,11 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() user: LoginUserDto) {
-    const res = await this.authService.login(user)
+    const res = await this.authService.login(user);
     if (!res) {
       throw new UnauthorizedException('Login Fail');
     }
-    return res
+    return res;
   }
 
   @Post('register')
