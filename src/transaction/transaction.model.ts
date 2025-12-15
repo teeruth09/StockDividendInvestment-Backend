@@ -6,12 +6,17 @@ export enum TransactionType {
   BUY = 'BUY',
   SELL = 'SELL',
 }
+export interface TransactionFilters {
+  symbol?: string;
+  type?: string;
+}
 
 /**
  * Interface สำหรับข้อมูล Transaction ที่ถูกบันทึกในฐานข้อมูล
  * ตรงกับ Prisma Schema
  */
 export interface Transaction {
+  transaction_id: string;
   // Fields ที่เป็นส่วนหนึ่งของ Composite Key
   user_id: string;
   stock_symbol: string;

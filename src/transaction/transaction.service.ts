@@ -2,12 +2,14 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from './../prisma.service';
 import { StockService } from './../stock/stock.service';
 import { Prisma, Portfolio } from '@prisma/client';
 import {
   Transaction,
+  TransactionFilters,
   TransactionInput,
   TransactionType,
 } from './transaction.model';
@@ -52,16 +54,11 @@ export class TransactionService {
     // ===============================================
     // 2. ดึงและยืนยันราคาย้อนหลัง (Validation)
     // ===============================================
-    const dateObject = new Date(transaction_date);
-    // ตรวจสอบความถูกต้อง
-    if (isNaN(dateObject.getTime())) {
-      throw new BadRequestException('Invalid transaction date format.');
-    }
-
-    const transactionDateString = dateObject.toISOString().split('T')[0];
+    const transactionDateString = transaction_date.toString();
 
     let marketClosePrice: number;
     try {
+      console.log(transactionDateString);
       marketClosePrice = await this.stockService.getPriceByDate(
         stock_symbol,
         transactionDateString,
@@ -76,6 +73,9 @@ export class TransactionService {
 
     const priceTolerance = 0.05; // 5 สตางค์
     if (Math.abs(price_per_share - marketClosePrice) > priceTolerance) {
+      console.log(
+        `price_per_share:${price_per_share},marketClose:${marketClosePrice}`,
+      );
       throw new BadRequestException(
         `Price per share (${price_per_share}) is outside the acceptable range of market price (${marketClosePrice}). Tolerance: ${priceTolerance} THB.`,
       );
@@ -141,11 +141,20 @@ export class TransactionService {
       }
 
       // 5. บันทึก Transaction
+      const transactionDateForPrisma = new Date(transaction_date);
+
+      if (isNaN(transactionDateForPrisma.getTime())) {
+        throw new InternalServerErrorException(
+          'Failed to parse date for database.',
+        );
+      }
+
       const transactionRecord = (await tx.transaction.create({
         data: {
           ...data,
           // 💡 ใช้ calculatedTotalAmount ที่คำนวณถูกต้องแล้ว
           total_amount: calculatedTotalAmount,
+          transaction_date: transactionDateForPrisma,
           user_id: user_id,
           transaction_type: type,
         },
@@ -163,7 +172,7 @@ export class TransactionService {
             current_quantity: newQuantity,
             total_invested: newTotalInvested,
             average_cost: newAverageCost,
-            last_transaction_date: transaction_date,
+            last_transaction_date: transactionDateForPrisma,
           },
           create: {
             user_id: user_id,
@@ -171,7 +180,7 @@ export class TransactionService {
             current_quantity: newQuantity,
             total_invested: newTotalInvested,
             average_cost: newAverageCost,
-            last_transaction_date: transaction_date,
+            last_transaction_date: transactionDateForPrisma,
           },
         });
       }
@@ -183,22 +192,27 @@ export class TransactionService {
   // ===================================
   // NEW: ดึงรายการ Transaction ทั้งหมดของ User
   // ===================================
-  async findAll(userId: string, symbol?: string): Promise<Transaction[]> {
+  async findAll(
+    userId: string,
+    filters: TransactionFilters,
+  ): Promise<Transaction[]> {
     // 1. สร้างเงื่อนไขการค้นหา (Where Clause)
     const where: Prisma.TransactionWhereInput = {
       user_id: userId,
     };
 
     // 2. ถ้ามีการส่ง symbol มา ให้เพิ่มเงื่อนไขการกรองด้วยสัญลักษณ์หุ้น
-    if (symbol) {
-      where.stock_symbol = symbol;
+    if (filters.symbol) {
+      where.stock_symbol = filters.symbol;
     }
-
-    // 3. ใช้ Prisma เพื่อดึงข้อมูล
+    // 3. ถ้ามีการส่ง type มา ให้เพิ่มเงื่อนไขการกรองด้วย transaction_type
+    if (filters.type) {
+      where.transaction_type = filters.type.toUpperCase();
+    }
+    // 4. ใช้ Prisma เพื่อดึงข้อมูล
     const transactions = await this.prisma.transaction.findMany({
       where: where,
       orderBy: {
-        // เรียงตามวันที่ทำรายการล่าสุดก่อน
         transaction_date: 'desc',
       },
       // หากต้องการข้อมูลความสัมพันธ์ (เช่น ชื่อหุ้น) ให้ใช้ include
@@ -207,8 +221,28 @@ export class TransactionService {
       // },
     });
 
-    // 4. เนื่องจากเราใช้ Transaction Model ที่กำหนดเอง
+    // 5. เนื่องจากเราใช้ Transaction Model ที่กำหนดเอง
     // และ Prisma return Type ที่เข้ากันได้ เราสามารถ return ได้โดยตรง
     return transactions as Transaction[];
+  }
+
+  async findOne(transactionId: string, userId: string): Promise<Transaction> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: {
+        transaction_id: transactionId,
+        user_id: userId,
+      },
+    });
+
+    if (!transaction) {
+      // หากไม่พบ อาจเป็นเพราะ ID ไม่ถูกต้อง หรือ ID เป็นของ User คนอื่น
+      throw new NotFoundException(
+        `Transaction with ID ${transactionId} not found.`,
+      );
+    }
+    return {
+      ...transaction,
+      transaction_type: transaction.transaction_type as TransactionType,
+    } as Transaction;
   }
 }

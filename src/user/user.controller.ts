@@ -67,18 +67,4 @@ export class UserController {
   ): Promise<User> {
     return this.userService.updateUser(username, postData);
   }
-
-  // [GET] /transactions User
-  @Get(':username/transactions')
-  async findAllUserTransactions(
-    @Param('username') username: string,
-    @Query('symbol') symbol?: string,
-  ): Promise<Transaction[]> {
-    const user = await this.userService.getUser(username);
-    if (!user) {
-      throw new NotFoundException(`User with ID ${username} not found`);
-    }
-    const userId = user.user_id;
-    return this.transactionService.findAll(userId, symbol);
-  }
 }

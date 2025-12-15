@@ -81,6 +81,7 @@ model Dividend {
 
 //ตารางบันทึกการซื้อขาย (ใช้ Composite Key ตามที่คุณกำหนด)
 model Transaction {
+  transaction_id    String   @id @default(uuid())
   user_id           String
   stock_symbol      String
   transaction_date  DateTime
@@ -95,7 +96,7 @@ model Transaction {
   user              User     @relation(fields: [user_id], references: [user_id])
   stock             Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
 
-  @@id([user_id, stock_symbol, created_at, transaction_type])
+  @@unique([user_id, stock_symbol, created_at, transaction_type])
 }
 
 //ตารางปันผลที่ได้รับจริง
