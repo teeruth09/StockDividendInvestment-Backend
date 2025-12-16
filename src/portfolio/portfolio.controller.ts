@@ -1,11 +1,14 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { PortfolioService } from './portfolio.service';
 import {
   PortfolioSummary,
   PortfolioDetail,
-  UpcomingDividend, // Import Model ที่สร้างไว้
+  UpcomingDividend,
+  PortfolioHistoryPoint,
+  AllocationItem, // Import Model ที่สร้างไว้
 } from './portfolio.model';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserId } from 'src/auth/decorators/user-id.decorator';
 // import { CurrentUser } from '../auth/current-user.decorator';
 
 @Controller('portfolio')
@@ -13,51 +16,41 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class PortfolioController {
   constructor(private readonly portfolioService: PortfolioService) {}
 
-  // ********************************************************
   // 1. ภาพรวมสรุปการลงทุน (Summary)
-  // [GET] /portfolio/:userId/summary
-  // ********************************************************
   /**
    * ดึงผลสรุปการลงทุนทั้งหมด (มูลค่าตลาดรวม, กำไร/ขาดทุนรวม)
    */
-  @Get(':userId/summary')
-  async getSummary(@Param('userId') userId: string): Promise<PortfolioSummary> {
-    // ใช้ userId จาก Param หรือจาก Token
+  @Get('/summary')
+  async getSummary(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+  ): Promise<PortfolioSummary> {
     return this.portfolioService.getPortfolioSummary(userId);
   }
 
-  // ********************************************************
   // 2. หุ้นในพอร์ตโฟลิโอ (Details)
-  // [GET] /portfolio/:userId/details
-  // ********************************************************
   /**
    * ดึงรายการหุ้นแต่ละตัวพร้อมสถานะ P/L และมูลค่าตลาด
    */
-  @Get(':userId/details')
+  @Get('/details')
   async getDetails(
-    @Param('userId') userId: string,
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
   ): Promise<PortfolioDetail[]> {
     return this.portfolioService.getPortfolioDetails(userId);
   }
 
-  // ********************************************************
   // 3. ปันผลที่คาดว่าจะได้รับเร็วๆนี้
-  // [GET] /portfolio/:userId/upcoming-dividends
-  // ********************************************************
   /**
    * ดึงรายการปันผลที่ผู้ใช้มีสิทธิ์แต่ยังไม่ได้รับเงิน
    */
-  @Get(':userId/upcoming-dividends')
+  @Get('/upcoming-dividends')
   async getUpcomingDividends(
-    @Param('userId') userId: string,
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
   ): Promise<UpcomingDividend[]> {
     return this.portfolioService.getUpcomingDividends(userId);
   }
 
-  // ********************************************************
   // 4. (เพิ่มเติม) ดึงประวัติการปันผลที่ได้รับแล้ว
   // [GET] /portfolio/:userId/received-dividends
-  // ********************************************************
   /**
    * ดึงรายการปันผลที่ได้รับแล้วทั้งหมด
    */
@@ -69,5 +62,20 @@ export class PortfolioController {
       message: 'Endpoint for received dividends implemented.',
       userId,
     };
+  }
+  // 5. ประวัติมูลค่าพอร์ต (Line Chart)
+  @Get('/history')
+  async getPortfolioHistory(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+    @Query('interval') interval: '1W' | '1M' | '3M' | '6M' | '1Y' = '1M',
+  ): Promise<PortfolioHistoryPoint[]> {
+    return this.portfolioService.getPortfolioHistory(userId, interval);
+  }
+  // 6. การกระจายการลงทุน (Pie Chart)
+  @Get('/allocation')
+  async getAllocation(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+  ): Promise<AllocationItem[]> {
+    return this.portfolioService.getAllocation(userId);
   }
 }
