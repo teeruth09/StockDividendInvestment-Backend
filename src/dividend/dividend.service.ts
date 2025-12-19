@@ -11,6 +11,7 @@ import {
   DividendReceived as DividendReceivedModel,
 } from './dividend.model';
 import { Prisma } from '@prisma/client';
+import yahooFinance from 'yahoo-finance2';
 
 @Injectable()
 export class DividendService {
@@ -180,5 +181,82 @@ export class DividendService {
       orderBy: { payment_date: 'asc' },
       take: limit, // แสดง x รายการที่กำลังจะมาถึง
     });
+  }
+
+  /**
+   *ดึงประวัติปันผลจาก Yahoo Finance และบันทึกลง DB
+   */
+  async syncDividendHistory(symbol: string): Promise<DividendModel[]> {
+    const yfSymbol = `${symbol}.BK`;
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(endDate.getFullYear() - 2);
+
+    const newlyCreatedDividends: DividendModel[] = [];
+
+    const normalizeDate = (date: Date) => {
+      const d = new Date(date);
+      d.setUTCHours(0, 0, 0, 0);
+      return d;
+    };
+
+    try {
+      const result = await yahooFinance.historical(yfSymbol, {
+        period1: startDate,
+        period2: endDate,
+        events: 'dividends',
+      });
+
+      if (result && result.length > 0) {
+        for (const item of result) {
+          // 1. ปรับวันที่จาก Yahoo ให้เป็น 00:00:00
+          const exDate = normalizeDate(new Date(item.date));
+          // เช็คว่าหุ้นตัวนี้มีปันผลในช่วง +/- 3 วันจากวันที่ Yahoo บอกมาไหม
+          const marginDateStart = new Date(
+            exDate.getTime() - 3 * 24 * 60 * 60 * 1000,
+          );
+          const marginDateEnd = new Date(
+            exDate.getTime() + 3 * 24 * 60 * 60 * 1000,
+          );
+          // ตรวจสอบว่ามีข้อมูลเดิมอยู่แล้วหรือไม่
+          const existing = await this.prisma.dividend.findFirst({
+            where: {
+              stock_symbol: symbol,
+              ex_dividend_date: {
+                gte: marginDateStart,
+                lte: marginDateEnd,
+              },
+            },
+          });
+
+          if (!existing) {
+            const paymentDate = new Date(exDate);
+            paymentDate.setDate(paymentDate.getDate() + 15);
+
+            const recordDate = new Date(exDate);
+            recordDate.setDate(recordDate.getDate() + 1);
+
+            const newDividend = await this.prisma.dividend.create({
+              data: {
+                stock_symbol: symbol,
+                ex_dividend_date: exDate,
+                announcement_date: exDate,
+                record_date: recordDate,
+                payment_date: paymentDate,
+                dividend_per_share: item.dividends,
+                source_of_dividend: 'กำไรสุทธิ',
+                calculation_status: 'PENDING',
+              },
+            });
+
+            newlyCreatedDividends.push(newDividend);
+          }
+        }
+      }
+      return newlyCreatedDividends; // ส่งคืนเฉพาะรายการที่สร้างใหม่
+    } catch (error) {
+      console.error(`Failed to sync dividends for ${symbol}:`, error.message);
+      throw new BadRequestException(`Failed to sync dividends for ${symbol}`);
+    }
   }
 }
