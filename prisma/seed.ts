@@ -12,8 +12,8 @@ function cleanString(str: string): string {
   if (!str) return '';
   return str
     .replace(/^['"`]|['"`]$/g, '') // ลบ quotes
-    .replace(/\r?\n|\r/g, '')     // ลบ line breaks
-    .trim();                       // ลบ whitespace
+    .replace(/\r?\n|\r/g, '') // ลบ line breaks
+    .trim(); // ลบ whitespace
 }
 
 function parseBoolean(value: string): boolean {
@@ -46,39 +46,42 @@ function parseDate(dateString: string): Date | null {
   return isNaN(date.getTime()) ? null : date;
 }
 
-
 async function readCSV(filePath: string): Promise<any[]> {
   console.log(`🔍 Reading CSV file: ${filePath}`);
-  
+
   if (!fs.existsSync(filePath)) {
     console.error(`❌ File not found: ${filePath}`);
     return [];
   }
-  
+
   try {
     const fileBuffer = fs.readFileSync(filePath);
     let csvContent = fileBuffer.toString('utf8');
-    
+
     if (csvContent.includes('�')) {
       console.log('⚠️ Detected encoding issues, trying latin1...');
       csvContent = fileBuffer.toString('latin1');
     }
-    
+
     const parseResult = Papa.parse(csvContent, {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header: string) => cleanString(header),
       transform: (value: string) => cleanString(value),
     });
-    
+
     if (parseResult.errors.length > 0) {
-      console.error(`❌ CSV parsing errors in ${filePath}:`, parseResult.errors);
+      console.error(
+        `❌ CSV parsing errors in ${filePath}:`,
+        parseResult.errors,
+      );
       return [];
     }
-    
-    console.log(`✅ Successfully parsed ${parseResult.data.length} rows from ${filePath}`);
+
+    console.log(
+      `✅ Successfully parsed ${parseResult.data.length} rows from ${filePath}`,
+    );
     return parseResult.data as any[];
-    
   } catch (error) {
     console.error(`💥 Error reading ${filePath}:`, error);
     return [];
@@ -89,13 +92,13 @@ async function readCSV(filePath: string): Promise<any[]> {
 
 async function seedStockData() {
   console.log('\n📈 Starting Stock data seeding...');
-  
+
   const data = await readCSV('./prisma/data/dataStock.csv');
   if (data.length === 0) return { success: 0, errors: 0 };
-  
+
   let successCount = 0;
   let errorCount = 0;
-  
+
   for (const [index, row] of data.entries()) {
     try {
       const stockSymbol = cleanString(row.stock_symbol);
@@ -103,43 +106,55 @@ async function seedStockData() {
       const sector = cleanString(row.sector);
       const corporateTaxRate = parseFloat(row.corporate_tax_rate) / 100;
       const boiSupport = parseBoolean(row.boi_support);
-      
+
       if (!stockSymbol || !name) {
-        console.warn(`⚠️ Stock Row ${index + 1}: Missing required fields, skipping`);
+        console.warn(
+          `⚠️ Stock Row ${index + 1}: Missing required fields, skipping`,
+        );
         errorCount++;
         continue;
       }
-      
+
       await prisma.stock.upsert({
         where: { stock_symbol: stockSymbol },
-        update: { name, sector, corporate_tax_rate: corporateTaxRate, boi_support: boiSupport },
-        create: { stock_symbol: stockSymbol, name, sector, corporate_tax_rate: corporateTaxRate, boi_support: boiSupport }
+        update: {
+          name,
+          sector,
+          corporate_tax_rate: corporateTaxRate,
+          boi_support: boiSupport,
+        },
+        create: {
+          stock_symbol: stockSymbol,
+          name,
+          sector,
+          corporate_tax_rate: corporateTaxRate,
+          boi_support: boiSupport,
+        },
       });
-      
+
       successCount++;
-      
+
       if (successCount % 50 === 0) {
         console.log(`📈 Stock progress: ${successCount}/${data.length}`);
       }
-      
     } catch (error) {
       console.error(`❌ Error processing stock row ${index + 1}:`, error);
       errorCount++;
     }
   }
-  
+
   return { success: successCount, errors: errorCount };
 }
 
 async function seedDividendData() {
   console.log('\n💰 Starting Dividend data seeding...');
-  
+
   const data = await readCSV('./prisma/data/dataDividend.csv');
   if (data.length === 0) return { success: 0, errors: 0 };
-  
+
   let successCount = 0;
   let errorCount = 0;
-  
+
   for (const [index, row] of data.entries()) {
     try {
       const dividendId = row.dividend_id;
@@ -150,26 +165,36 @@ async function seedDividendData() {
       const paymentDate = parseDate(row.payment_date);
       const dividendPerShare = parseFloat(row.dividend_per_share);
       const sourceOfDividend = cleanString(row.source_of_dividend) || null;
-      
+
       // Validation
-      if (!stockSymbol || !announcementDate || !exDividendDate || 
-          !recordDate || !paymentDate || dividendPerShare <= 0) {
-        console.warn(`⚠️ Dividend Row ${index + 1}: Missing/invalid required fields, skipping`);
+      if (
+        !stockSymbol ||
+        !announcementDate ||
+        !exDividendDate ||
+        !recordDate ||
+        !paymentDate ||
+        dividendPerShare <= 0
+      ) {
+        console.warn(
+          `⚠️ Dividend Row ${index + 1}: Missing/invalid required fields, skipping`,
+        );
         errorCount++;
         continue;
       }
-      
+
       // ตรวจสอบว่า stock มีอยู่หรือไม่
       const existingStock = await prisma.stock.findUnique({
-        where: { stock_symbol: stockSymbol }
+        where: { stock_symbol: stockSymbol },
       });
-      
+
       if (!existingStock) {
-        console.warn(`⚠️ Dividend Row ${index + 1}: Stock ${stockSymbol} not found, skipping`);
+        console.warn(
+          `⚠️ Dividend Row ${index + 1}: Stock ${stockSymbol} not found, skipping`,
+        );
         errorCount++;
         continue;
       }
-      
+
       await prisma.dividend.upsert({
         where: { dividend_id: dividendId },
         update: {
@@ -179,7 +204,7 @@ async function seedDividendData() {
           record_date: recordDate,
           payment_date: paymentDate,
           dividend_per_share: dividendPerShare,
-          source_of_dividend: sourceOfDividend
+          source_of_dividend: sourceOfDividend,
         },
         create: {
           dividend_id: dividendId,
@@ -189,37 +214,36 @@ async function seedDividendData() {
           record_date: recordDate,
           payment_date: paymentDate,
           dividend_per_share: dividendPerShare,
-          source_of_dividend: sourceOfDividend
-        }
-      });      
+          source_of_dividend: sourceOfDividend,
+        },
+      });
       successCount++;
       if (successCount % 50 === 0) {
         console.log(`📈 Stock progress: ${successCount}/${data.length}`);
       }
-            
     } catch (error) {
       console.error(`❌ Error processing dividend row ${index + 1}:`, error);
       errorCount++;
     }
   }
-  
+
   return { success: successCount, errors: errorCount };
 }
 
 async function seedHistoricalPriceData() {
   console.log('\n📊 Starting Historical Price data seeding...');
-  
+
   const data = await readCSV('./prisma/data/dataHistoricalPrice.csv');
   if (data.length === 0) return { success: 0, errors: 0 };
-  
+
   let successCount = 0;
   let errorCount = 0;
-  
+
   // Process in batches for better performance
   const batchSize = 100;
   for (let i = 0; i < data.length; i += batchSize) {
     const batch = data.slice(i, i + batchSize);
-    
+
     try {
       const batchData = batch
         .map((row, index) => {
@@ -229,14 +253,20 @@ async function seedHistoricalPriceData() {
           const highPrice = parseFloat(row.high_price);
           const lowPrice = parseFloat(row.low_price);
           const closePrice = parseFloat(row.close_price);
-          const volumeShares = BigInt(Math.floor(parseFloat(row.volume_shares) || 0));
-          const volumeValue = BigInt(Math.floor(parseFloat(row.volume_value) || 0));
-          
+          const volumeShares = BigInt(
+            Math.floor(parseFloat(row.volume_shares) || 0),
+          );
+          const volumeValue = BigInt(
+            Math.floor(parseFloat(row.volume_value) || 0),
+          );
+
           if (!stockSymbol || !priceDate || openPrice <= 0) {
-            console.warn(`⚠️ Historical Price Row ${i + index + 1}: Invalid data, skipping`);
+            console.warn(
+              `⚠️ Historical Price Row ${i + index + 1}: Invalid data, skipping`,
+            );
             return null;
           }
-          
+
           return {
             stock_symbol: stockSymbol,
             price_date: priceDate,
@@ -245,66 +275,73 @@ async function seedHistoricalPriceData() {
             low_price: lowPrice,
             close_price: closePrice,
             price_change: closePrice - openPrice,
-            percent_change: openPrice > 0 ? ((closePrice - openPrice) / openPrice) * 100 : 0,
+            percent_change:
+              openPrice > 0 ? ((closePrice - openPrice) / openPrice) * 100 : 0,
             volume_shares: volumeShares,
-            volume_value: volumeValue
+            volume_value: volumeValue,
           };
         })
-        .filter(item => item !== null);
-      
+        .filter((item) => item !== null);
+
       if (batchData.length > 0) {
         await prisma.historicalPrice.createMany({
           data: batchData,
-          skipDuplicates: true
+          skipDuplicates: true,
         });
         successCount += batchData.length;
       }
-      
-      console.log(`📊 Historical Price progress: ${Math.min(i + batchSize, data.length)}/${data.length}`);
-      
+
+      console.log(
+        `📊 Historical Price progress: ${Math.min(i + batchSize, data.length)}/${data.length}`,
+      );
     } catch (error) {
-      console.error(`❌ Error processing historical price batch ${i}-${i + batchSize}:`, error);
+      console.error(
+        `❌ Error processing historical price batch ${i}-${i + batchSize}:`,
+        error,
+      );
       errorCount += batch.length;
     }
   }
-  
+
   return { success: successCount, errors: errorCount };
 }
-
-
 
 // ===== Main Seed Function =====
 
 async function main() {
-  
   try {
     // Optional: Clear existing data
     // await clearData();
-    
+
     // Seed in dependency order
     const stockResult = await seedStockData();
     const dividendResult = await seedDividendData();
     const historicalPriceResult = await seedHistoricalPriceData();
-    
+
     // Summary
     console.log('\n🎉 Seeding completed!');
     console.log('📊 Final Summary:');
-    console.log(`📈 Stocks: ✅ ${stockResult.success} success, ❌ ${stockResult.errors} errors`);
-    console.log(`💰 Dividends: ✅ ${dividendResult.success} success, ❌ ${dividendResult.errors} errors`);
-    console.log(`📊 Historical Prices: ✅ ${historicalPriceResult.success} success, ❌ ${historicalPriceResult.errors} errors`);
-    
+    console.log(
+      `📈 Stocks: ✅ ${stockResult.success} success, ❌ ${stockResult.errors} errors`,
+    );
+    console.log(
+      `💰 Dividends: ✅ ${dividendResult.success} success, ❌ ${dividendResult.errors} errors`,
+    );
+    console.log(
+      `📊 Historical Prices: ✅ ${historicalPriceResult.success} success, ❌ ${historicalPriceResult.errors} errors`,
+    );
+
     // Final counts
     const counts = await Promise.all([
       prisma.stock.count(),
       prisma.dividend.count(),
       prisma.historicalPrice.count(),
     ]);
-    
+
     console.log(`\n📈 Total records in database:`);
     console.log(`   • Stocks: ${counts[0]}`);
     console.log(`   • Dividends: ${counts[1]}`);
     console.log(`   • Historical Prices: ${counts[2]}`);
-    
   } catch (error) {
     console.error('💥 Fatal error during seeding:', error);
     throw error;
@@ -314,7 +351,7 @@ async function main() {
 // Optional: Clear data function
 async function clearData() {
   console.log('🗑️ Clearing existing data...');
-  
+
   // Delete in reverse dependency order
   await prisma.taxCredit.deleteMany();
   await prisma.dividendReceived.deleteMany();
@@ -326,7 +363,7 @@ async function clearData() {
   await prisma.dividend.deleteMany();
   await prisma.stock.deleteMany();
   await prisma.user.deleteMany();
-  
+
   console.log('✅ Data cleared successfully');
 }
 

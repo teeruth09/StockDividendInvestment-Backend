@@ -17,6 +17,7 @@ import {
   DividendReceived as DividendReceivedModel,
 } from './dividend.model';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { UserId } from 'src/auth/decorators/user-id.decorator';
 
 // 💡 อาจต้อง Import Model และ Service อื่นๆ ในอนาคต (เช่น UserService)
 
@@ -42,11 +43,10 @@ export class DividendController {
   //    แต่หากต้องการแยก Controller เราสามารถทำได้โดยกำหนด Path ใหม่
   // ********************************************************
   // [GET] /dividends/received/:userId
-  @Get('received/:userId')
+  @Get('received')
   @UseGuards(JwtAuthGuard)
   async findReceivedHistory(
-    // 💡 ใน Production ควรใช้ @CurrentUser('userId') แทน @Param
-    @Param('userId') userId: string,
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
   ): Promise<DividendReceivedModel[]> {
     const history = await this.dividendService.findReceivedHistory(userId);
 
@@ -82,7 +82,7 @@ export class DividendController {
         count: receivedRecords.length,
       };
     } catch (error) {
-      // 🚨 ดักจับ Error ที่เกิดจากการเรียกซ้ำซ้อน
+      // ดักจับ Error ที่เกิดจากการเรียกซ้ำซ้อน
       if (
         error instanceof BadRequestException &&
         error.message.includes('already completed')
@@ -94,5 +94,20 @@ export class DividendController {
       }
       throw error; // โยน Error อื่น ๆ ต่อไป
     }
+  }
+
+  @Post('sync/:symbol')
+  @UseGuards(JwtAuthGuard)
+  async syncDividends(@Param('symbol') symbol: string) {
+    const newDividends = await this.dividendService.syncDividendHistory(
+      symbol.toUpperCase(),
+    );
+    return {
+      message:
+        newDividends.length > 0
+          ? `Successfully synced ${newDividends.length} new dividend records.`
+          : `No new dividends found for ${symbol}.`,
+      data: newDividends,
+    };
   }
 }

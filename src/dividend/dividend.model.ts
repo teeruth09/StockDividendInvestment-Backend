@@ -14,9 +14,9 @@ export class DividendReceived {
   user_id: string;
   dividend_id: string;
   shares_held: number;
-  gross_dividend: number;
-  withholding_tax: number;
-  net_dividend_received: number;
+  gross_dividend: number; //ปันผลเต็มก่อนหักภาษี
+  withholding_tax: number; //หัก ณ ที่จ่ายปันผล
+  net_dividend_received: number; //ปันผลสุทธิของหุ้น
   payment_received_date?: Date | null;
   created_at: Date;
 
