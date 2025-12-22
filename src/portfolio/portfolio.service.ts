@@ -201,6 +201,13 @@ export class PortfolioService {
   async getUpcomingDividends(userId: string): Promise<UpcomingDividend[]> {
     const records = await this.dividendService.findUpcomingDividends(10);
 
+    // const testDate = new Date('2025-01-01');
+    // const records = await this.dividendService.findUpcomingDividendsTest(
+    //   10,
+    //   testDate,
+    // );
+    console.log(records);
+
     const upcomingDividends: UpcomingDividend[] = [];
 
     for (const div of records) {

@@ -29,12 +29,13 @@ export class Prediction {
   stock_symbol: string;
   prediction_date: Date;
   predicted_ex_dividend_date?: Date | null;
+  predicted_record_date?: Date | null;
   predicted_payment_date?: Date | null;
   predicted_dividend_per_share?: number | null;
-  predicted_dividend_yield?: number | null;
-  predicted_price?: number | null;
-  expected_return?: number | null;
-  recommendation_type?: string | null;
+  // predicted_dividend_yield?: number | null;
+  // predicted_price?: number | null;
+  // expected_return?: number | null;
+  // recommendation_type?: string | null;
   confidence_score?: number | null;
   model_version?: string | null;
   prediction_horizon_days?: number | null;

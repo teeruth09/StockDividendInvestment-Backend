@@ -183,6 +183,18 @@ export class DividendService {
     });
   }
 
+  // ปรับฟังก์ชันให้รับ referenceDate เพิ่ม (ถ้าไม่ส่งมาจะใช้ค่าปัจจุบัน) ลองกับวันที่ในอดีต
+  async findUpcomingDividendsTest(
+    limit: number,
+    referenceDate: Date = new Date(),
+  ): Promise<DividendModel[]> {
+    return this.prisma.dividend.findMany({
+      where: { payment_date: { gt: referenceDate } },
+      orderBy: { payment_date: 'asc' },
+      take: limit,
+    });
+  }
+
   /**
    *ดึงประวัติปันผลจาก Yahoo Finance และบันทึกลง DB
    */
@@ -258,5 +270,91 @@ export class DividendService {
       console.error(`Failed to sync dividends for ${symbol}:`, error.message);
       throw new BadRequestException(`Failed to sync dividends for ${symbol}`);
     }
+  }
+  // ********************************************************
+  // 4. เมธอดสำหรับดึงปฏิทินประวัติปันผล (DividendCalendar)
+  // ********************************************************
+  async getDividendCalendar(month?: number, year?: number) {
+    // 1. กำหนดช่วงเวลา (ถ้าไม่ระบุให้ดึงเดือนปัจจุบัน)
+    const targetYear = year || new Date().getFullYear();
+    const startDate = new Date(targetYear, month ? month - 1 : 0, 1);
+    const endDate = new Date(targetYear, month ? month : 12, 0);
+
+    // 2.1 ดึงข้อมูลจาก XD จริง
+    const actualDividends = await this.prisma.dividend.findMany({
+      where: {
+        ex_dividend_date: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        stock: true, //Join Stock Table
+      },
+      //orderBy: { ex_dividend_date: 'asc' },
+    });
+    // 2.2 ดึงข้อมูล XD Prediction
+    const predictedDividends = await this.prisma.prediction.findMany({
+      where: {
+        predicted_ex_dividend_date: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: { stock: true },
+    });
+
+    // 3. รวมและจัดกลุ่มข้อมูล
+    const grouped = {};
+
+    // จัดกลุ่มรายการจริง
+    actualDividends.forEach((curr) => {
+      const dateKey = curr.ex_dividend_date.toISOString().split('T')[0];
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = { date: dateKey, events: [] };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      grouped[dateKey].events.push({
+        dividend_id: curr.dividend_id,
+        symbol: curr.stock_symbol,
+        name: curr.stock?.name,
+        type: 'XD', // ข้อมูลจริง
+        ex_dividend_date: curr.ex_dividend_date,
+        record_date: curr.record_date,
+        payment_date: curr.payment_date,
+        dividend_per_share: curr.dividend_per_share,
+        source_of_dividend: curr.source_of_dividend,
+      });
+    });
+
+    // จัดกลุ่มรายการคาดการณ์
+    predictedDividends.forEach((curr) => {
+      if (!curr.predicted_ex_dividend_date) return;
+      const dateKey = curr.predicted_ex_dividend_date
+        .toISOString()
+        .split('T')[0];
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = { date: dateKey, events: [] };
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      grouped[dateKey].events.push({
+        dividend_id: `pred-${curr.stock_symbol}-${dateKey}`, // สร้าง ID ชั่วคราว
+        symbol: curr.stock_symbol,
+        name: curr.stock?.name,
+        type: 'XD-PREDICT', // ข้อมูลคาดการณ์
+        ex_dividend_date: curr.predicted_ex_dividend_date,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        record_date: curr.predicted_record_date,
+        payment_date: curr.predicted_payment_date,
+        dividend_per_share: curr.predicted_dividend_per_share,
+        confidence_score: curr.confidence_score, // ข้อมูลเสริมเฉพาะ Prediction
+      });
+    });
+
+    // แปลงจาก Object เป็น Array เพื่อให้ Frontend วนลูปง่าย
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return Object.values(grouped);
   }
 }
