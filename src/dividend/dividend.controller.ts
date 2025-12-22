@@ -96,6 +96,7 @@ export class DividendController {
     }
   }
 
+  // 4. ดึงประวัติปันผลจาก YahooFinance และ save ลง DB (Admin/System Only)
   @Post('sync/:symbol')
   @UseGuards(JwtAuthGuard)
   async syncDividends(@Param('symbol') symbol: string) {
@@ -109,5 +110,18 @@ export class DividendController {
           : `No new dividends found for ${symbol}.`,
       data: newDividends,
     };
+  }
+
+  //5. ดึงปฏิทินปันผลทั้งหมด (Dividend Calendar)
+  @Get('calendar')
+  async getCalendar(
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ) {
+    // แปลง Query string เป็น number
+    const m = month ? parseInt(month) : undefined;
+    const y = year ? parseInt(year) : undefined;
+
+    return this.dividendService.getDividendCalendar(m, y);
   }
 }

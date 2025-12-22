@@ -160,12 +160,9 @@ model Prediction {
   stock_symbol             String
   prediction_date          DateTime
   predicted_ex_dividend_date DateTime?
+  predicted_record_date    DateTime?
   predicted_payment_date   DateTime?
   predicted_dividend_per_share Float?
-  predicted_dividend_yield Float?
-  predicted_price          Float?
-  expected_return          Float?
-  recommendation_type      String?
   confidence_score         Int?
   model_version            String?
   prediction_horizon_days  Int?

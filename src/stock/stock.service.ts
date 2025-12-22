@@ -52,10 +52,7 @@ export class StockService {
       })),
       predictions: stock.predictions?.map((p) => ({
         ...p,
-        predicted_dividend_yield: p.predicted_dividend_yield ?? 0, // null → 0
         predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
-        predicted_price: p.predicted_price ?? 0,
-        expected_return: p.expected_return ?? 0,
         confidence_score: p.confidence_score ?? 0,
         prediction_horizon_days: p.prediction_horizon_days ?? 0,
       })),
@@ -127,10 +124,7 @@ export class StockService {
       })),
       predictions: stock.predictions?.map((p) => ({
         ...p,
-        predicted_dividend_yield: p.predicted_dividend_yield ?? 0,
         predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
-        predicted_price: p.predicted_price ?? 0,
-        expected_return: p.expected_return ?? 0,
         confidence_score: p.confidence_score ?? 0,
         prediction_horizon_days: p.prediction_horizon_days ?? 0,
       })),
