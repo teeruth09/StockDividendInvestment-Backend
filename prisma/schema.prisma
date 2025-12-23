@@ -138,16 +138,33 @@ model TaxCredit {
 model UserTaxInfo {
   user_id               String
   tax_year              Int
-  annual_income         Float?
-  tax_bracket           Float?
-  personal_deduction    Float?
-  spouse_deduction      Float?
-  child_deduction       Float?
-  parent_deduction      Float?
-  life_insurance_deduction Float?
-  health_insurance_deduction Float?
-  provident_fund_deduction Float?
-  retirement_mutual_fund Float?
+
+  // รายได้ (Income)
+  salary                Float    @default(0)
+  bonus                 Float    @default(0)
+  other_income          Float    @default(0)
+
+  // 1. ค่าลดหย่อนส่วนตัวและครอบครัว
+  personal_deduction    Float    @default(60000) // พื้นฐาน 60,000
+  spouse_deduction      Float    @default(0)     // ลดหย่อนคู่สมรส (สูงสุด 60,000)
+  child_deduction       Float    @default(0)     // ลดหย่อนบุตร
+  parent_deduction      Float    @default(0)     // ลดหย่อนบิดามารดา (คนละ 30,000)
+  disabled_deduction    Float    @default(0)     // ลดหย่อนผู้พิการ (คนละ 60,000)
+
+  // --- 2. กลุ่มประกันและการออม ---
+  social_security       Float    @default(0)     // ประกันสังคม (สูงสุด 9,000)
+  life_insurance        Float    @default(0)     // ประกันชีวิต (สูงสุด 100,000)
+  health_insurance      Float    @default(0)     // ประกันสุขภาพตัวเอง (สูงสุด 25,000)
+  parent_health_insurance Float  @default(0)     // ประกันสุขภาพพ่อแม่ (สูงสุด 15,000)
+  pvd_deduction         Float    @default(0)     // กองทุนสำรองเลี้ยงชีพ
+  ssf_investment        Float    @default(0)     // กองทุน SSF
+  rmf_investment        Float    @default(0)     // กองทุน RMF
+  thaiesg_investment    Float    @default(0)     // กองทุน Thai ESG (ลดหย่อนใหม่)
+
+  // --- 3. กลุ่มอสังหาริมทรัพย์และอื่นๆ ---
+  home_loan_interest    Float    @default(0)     // ดอกเบี้ยกู้ซื้อที่อยู่อาศัย (สูงสุด 100,000)
+  donation_general      Float    @default(0)     // เงินบริจาคทั่วไป
+  donation_education    Float    @default(0)     // เงินบริจาคเพื่อการศึกษา/กีฬา (ลดหย่อน 2 เท่า)
 
   // ความสัมพันธ์
   user                  User     @relation(fields: [user_id], references: [user_id])

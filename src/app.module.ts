@@ -7,6 +7,7 @@ import { ConfigModule } from '@nestjs/config';
 import { DividendModule } from './dividend/dividend.module';
 import { TaxCreditModule } from './taxCredit/taxCredit.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
+import { TaxModule } from './tax/tax.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PortfolioModule } from './portfolio/portfolio.module';
     DividendModule,
     TaxCreditModule,
     PortfolioModule,
+    TaxModule,
   ],
   controllers: [],
   providers: [],
