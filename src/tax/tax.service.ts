@@ -19,19 +19,47 @@ export class TaxService {
   ];
 
   async getUserTaxInfo(userId: string, year: number): Promise<CalculateTaxDto> {
-    const taxInfo = await this.prisma.userTaxInfo.findUnique({
-      where: { user_id_tax_year: { user_id: userId, tax_year: year } },
-    });
+    // 1. กำหนดช่วงวันที่ของปีภาษีนั้น (1 ม.ค. - 31 ธ.ค.)
+    const startOfYear = new Date(`${year}-01-01T00:00:00.000Z`);
+    const endOfYear = new Date(`${year}-12-31T23:59:59.999Z`);
+
+    // const taxInfo = await this.prisma.userTaxInfo.findUnique({
+    //   where: { user_id_tax_year: { user_id: userId, tax_year: year } },
+    // });
+
+    // 2. ดึงข้อมูลภาษีพื้นฐาน และ ข้อมูลปันผลรวมในปีนั้น พร้อมกัน
+    const [taxInfo, dividendSummary] = await Promise.all([
+      this.prisma.userTaxInfo.findUnique({
+        where: { user_id_tax_year: { user_id: userId, tax_year: year } },
+      }),
+      this.prisma.dividendReceived.aggregate({
+        where: {
+          user_id: userId,
+          payment_received_date: {
+            gte: startOfYear,
+            lte: endOfYear,
+          },
+        },
+        _sum: {
+          gross_dividend: true, // รวมยอดปันผลก่อนหักภาษีทั้งหมดในปี
+        },
+      }),
+    ]);
 
     if (!taxInfo) {
       throw new NotFoundException(`ไม่พบข้อมูลภาษีสำหรับปี ${year}`);
     }
+
+    // 3. รวมยอด Gross Dividend ที่คำนวณได้ (ถ้าไม่มีให้เป็น 0)
+    const totalGrossDividend = dividendSummary._sum.gross_dividend || 0;
 
     return {
       year: taxInfo.tax_year,
       salary: taxInfo.salary,
       bonus: taxInfo.bonus,
       otherIncome: taxInfo.other_income,
+      // ส่งยอดปันผลรวมกลับไปที่ DTO ด้วย
+      dividendAmount: totalGrossDividend,
       // 1. ส่วนตัวและครอบครัว
       personalDeduction: taxInfo.personal_deduction,
       spouseDeduction: taxInfo.spouse_deduction,
@@ -53,37 +81,65 @@ export class TaxService {
     };
   }
 
-  async calculateTaxSummary(userId: string, dto: CalculateTaxDto) {
-    // 1. ดึงเครดิตภาษีปันผลจากระบบโดยตรง (เพื่อให้ตัวเลขปันผลแม่นยำตามจริงในระบบ)
-    const credits = await this.prisma.taxCredit.findMany({
-      where: { user_id: userId, tax_year: dto.year },
-    });
+  async calculateTaxSummary(userId: string | null, dto: CalculateTaxDto) {
+    let totalGrossDividend = 0;
+    let totalTaxCredit = 0;
+    let withholdingTax10 = 0;
 
-    // 1. คำนวณยอดปันผล และภาษีที่จ่ายไปแล้ว 10%
-    const totalGrossDividend = credits.reduce(
-      (sum, c) => sum + c.taxable_income, //taxable_income = เงินปันผลก่อนหักภาษี + เครดิตภาษี
-      0,
-    );
-    const totalTaxCredit = credits.reduce(
-      (sum, c) => sum + c.tax_credit_amount,
-      0,
-    );
+    if (dto.dividendAmount !== undefined && dto.dividendAmount !== null) {
+      console.log('user pass dividendAmount');
+      // กรณี Guest: คำนวณจากค่าที่กรอกมาใน DTO
+      const netDividend = dto.dividendAmount || 0;
+      const factor = dto.dividendCreditFactor || 0.2; // ระบบตอนนี้ default 0.20 (20/80)
 
-    // คำนวณภาษีหัก ณ ที่จ่าย 10% ของปันผล (ตามสูตรที่คุณระบุ)
-    const withholdingTax10 = credits.reduce(
-      (sum, c) => sum + (c.taxable_income - c.tax_credit_amount) * 0.1,
-      0,
-    );
+      // คำนวณกลับเป็นค่าต่างๆ
+      // 1. เครดิตภาษี = ปันผลรับสุทธิ * factor
+      totalTaxCredit = (netDividend * factor) / (1 - factor);
+      // 2. ยอดปันผลรวม (Gross) = ปันผลรับสุทธิ + เครดิตภาษี
+      totalGrossDividend = netDividend + totalTaxCredit;
+      // 3. ภาษีหัก ณ ที่จ่าย 10% (คิดจากยอดปันผลสุทธิก่อนรวมเครดิต)
+      withholdingTax10 = netDividend * 0.1;
+    }
+    // กรณี Login และไม่ได้แก้ไขยอดปันผลเอง (ใช้ข้อมูลจาก DB)
+    else if (userId) {
+      console.log('use default from db');
+      // กรณี Login: ดึงเครดิตภาษีปันผลจากระบบโดยตรง
+      // 1. ดึงเครดิตภาษีปันผลจากระบบโดยตรง (เพื่อให้ตัวเลขปันผลแม่นยำตามจริงในระบบ)
+      const credits = await this.prisma.taxCredit.findMany({
+        where: { user_id: userId, tax_year: dto.year },
+      });
+
+      // 1. คำนวณยอดปันผล และภาษีที่จ่ายไปแล้ว 10%
+      totalGrossDividend = credits.reduce(
+        (sum, c) => sum + c.taxable_income, //taxable_income = เงินปันผลก่อนหักภาษี + เครดิตภาษี
+        0,
+      );
+      totalTaxCredit = credits.reduce((sum, c) => sum + c.tax_credit_amount, 0);
+
+      // คำนวณภาษีหัก ณ ที่จ่าย 10% ของปันผล (ตามสูตรที่คุณระบุ)
+      withholdingTax10 = credits.reduce(
+        (sum, c) => sum + (c.taxable_income - c.tax_credit_amount) * 0.1,
+        0,
+      );
+    }
 
     // 2. คำนวณรายได้และรายได้สุทธิ
     // กรณีใช้เครดิต: รายได้ = เงินเดือน + โบนัส + รายได้อื่น + (ปันผล + เครดิต)
     // กรณีไม่ใช้: รายได้ = เงินเดือน + โบนัส + รายได้อื่น (ปันผลโดน Final Tax 10% จบไปแล้ว)
-    const incomeFromWork =
+    // *************************เงินได้พึงประเมิน ประเภท 1 และ 2 ************************
+    const incomeType1And2 =
       (dto.salary || 0) + (dto.bonus || 0) + (dto.otherIncome || 0);
 
+    // Step 1: หักค่าใช้จ่าย (Expenses)
+    // รวมม.40(1)+(2) แล้วหัก 50% แต่ไม่เกิน 100,000 บาท
+    const totalExpenses = Math.min(incomeType1And2 * 0.5, 100000);
+
+    // Step 2: คำนวณรายได้หลังหักค่าใช้จ่าย (ก่อนหักลดหย่อน)
+    const incomeAfterExpenses = incomeType1And2 - totalExpenses;
+
     const totalIncome = dto.includeDividendCredit
-      ? incomeFromWork + totalGrossDividend
-      : incomeFromWork;
+      ? incomeAfterExpenses + totalGrossDividend
+      : incomeAfterExpenses;
     // รายละเอียดค่าลดหย่อน
     const { deductionDetails, totalDeductions } = this.normalizeDeductions(
       dto,
@@ -132,6 +188,10 @@ export class TaxService {
     }
 
     return {
+      incomeType1And2,
+      totalExpenses,
+      incomeAfterExpenses,
+      totalGrossDividend,
       totalIncome,
       totalDeductions,
       netIncome,
@@ -218,7 +278,7 @@ export class TaxService {
     const fundTotalRaw = pvd + rmf + ssf + thaiEsg;
 
     const fundCapByIncome = totalIncome * 0.3;
-    const fundCapAbsolute = 500000;
+    const fundCapAbsolute = 500000; //กองทุนทุกกองรวมกันห้ามเกิน 500,000 บาท
 
     const fundTotal = Math.min(fundTotalRaw, fundCapByIncome, fundCapAbsolute);
 
@@ -262,7 +322,7 @@ export class TaxService {
         เบี้ยประกันชีวิต: lifeInsurance,
         เบี้ยประกันสุขภาพ: healthInsurance,
         เบี้ยประกันสุขภาพบิดามารดา: parentHealthInsurance,
-        กองทุนรวมเพื่อเกษียณ: fundTotal,
+        'กองทุนรวมเพื่อเกษียณ(PVD + RMF + SSF + Thai Esg)': fundTotal,
         ดอกเบี้ยบ้าน: homeLoanInterest,
         เงินบริจาคทั่วไป: donationGeneral,
         เงินบริจาคเพื่อการศึกษา: donationEducation,

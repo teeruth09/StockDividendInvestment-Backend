@@ -29,4 +29,6 @@ export class CalculateTaxDto {
   donationEducation?: number; // บริจาคศึกษา (2 เท่า)
 
   includeDividendCredit?: boolean; //เพิ่มเพื่อเลือกว่าจะรวมปันผลหรือไม่
+  dividendAmount?: number; // เงินปันผลรับสุทธิ (กรณี Guest)
+  dividendCreditFactor?: number; // อัตราเครดิตภาษี เช่น 0.25 (20/80)
 }
