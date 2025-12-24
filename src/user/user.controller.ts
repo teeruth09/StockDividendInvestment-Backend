@@ -9,13 +9,12 @@ import {
   Post,
   Put,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { User, UserTaxInfoDto } from './user.model';
-import { Transaction } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { UserId } from 'src/auth/decorators/user-id.decorator';
 
 @Controller('user')
 export class UserController {
@@ -31,8 +30,10 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Get('tax-info')
-  async getUserTaxInfo(@Req() req, @Query('taxYear') taxYear: string) {
-    const userId = req.user.user_id;
+  async getUserTaxInfo(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+    @Query('taxYear') taxYear: string,
+  ) {
     const taxYearNumber = parseInt(taxYear, 10);
     if (!userId) {
       throw new BadRequestException('User ID not found in request');
@@ -45,8 +46,10 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Post('tax-info')
-  async updateUserTaxInfo(@Req() req, @Body() body: UserTaxInfoDto) {
-    const userId = req.user.user_id;
+  async updateUserTaxInfo(
+    @UserId() userId: string, //ดึง ID จาก JWT Token Payload
+    @Body() body: UserTaxInfoDto,
+  ) {
     return this.userService.updateUserTaxInfo(userId, body);
   }
 
