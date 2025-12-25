@@ -9,13 +9,21 @@ import {
   Query,
   Body,
   BadRequestException,
+  UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { CreateStockDto, Stock, UpdateStockDto } from './stock.model';
+import { StockSyncService } from './stock.sync.service';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { AdminGuard } from 'src/auth/admin.guard';
 
 @Controller('stock')
 export class StockController {
-  constructor(private readonly stockService: StockService) {}
+  constructor(
+    private readonly stockService: StockService,
+    private readonly stockSyncService: StockSyncService,
+  ) {}
 
   // 1. รายการหุ้นทั้งหมด
   @Get('stocks')
@@ -163,7 +171,8 @@ export class StockController {
   @Get(':symbol/prices/chart')
   async getStockPricesChart(
     @Param('symbol') symbol: string,
-    @Query('interval') interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' = '1D',
+    @Query('interval')
+    interval: '1D' | '5D' | '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' = '1D',
   ) {
     const data = await this.stockService.getHistoricalPricesForChart(
       symbol,
@@ -180,5 +189,13 @@ export class StockController {
     // console.log(`${symbol}/summary`);
     // console.log(summary);
     return summary;
+  }
+
+  //Auto mation sync ราคาหุ้นรยวัน ทำงานตาม schedule
+  @Post('sync-all')
+  @UseGuards(JwtAuthGuard, AdminGuard) // รันตามลำดับ: เช็ค Token -> เช็ค Email
+  async triggerSyncAll() {
+    await this.stockSyncService.handleStockSync();
+    return { message: 'Sync started successfully' };
   }
 }

@@ -8,13 +8,14 @@ import { DividendModule } from './dividend/dividend.module';
 import { TaxCreditModule } from './taxCredit/taxCredit.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { TaxModule } from './tax/tax.module';
-
+import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ScheduleModule.forRoot(), // Job Schedule
     UserModule,
     AuthModule,
     StockModule,

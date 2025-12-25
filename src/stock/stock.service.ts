@@ -16,6 +16,7 @@ import {
 import yahooFinance from 'yahoo-finance2';
 import * as NodeCache from 'node-cache';
 import { Dividend } from 'src/dividend/dividend.model';
+import { normalizeDate } from 'src/utils/time-normalize';
 
 @Injectable()
 export class StockService {
@@ -198,7 +199,10 @@ export class StockService {
 
     // 2️⃣ Determine if we need to fetch from Yahoo
     let yfDataMapped: any[] = [];
-    const dbDates = new Set(dbPrices.map((p) => p.price_date.getTime()));
+    //const dbDates = new Set(dbPrices.map((p) => p.price_date.getTime()));
+    const dbDates = new Set(
+      dbPrices.map((p) => normalizeDate(p.price_date).getTime()),
+    );
 
     try {
       const yfSymbol = YF_SYMBOL_MAP[symbol] || symbol;
@@ -219,7 +223,8 @@ export class StockService {
         const yfData = await yahooFinance.historical(yfSymbol, yfQuery);
 
         yfDataMapped = yfData
-          .filter((item) => !dbDates.has(new Date(item.date).getTime())) // Filter duplicates
+          .map((item) => ({ ...item, date: normalizeDate(item.date) })) // Normalize วันที่ก่อน
+          .filter((item) => !dbDates.has(item.date.getTime())) // Filter duplicates
           .map((item, index, arr) => {
             const prevClose = index > 0 ? arr[index - 1].close : item.close;
             const priceChange = item.close - prevClose;
@@ -228,7 +233,7 @@ export class StockService {
 
             return {
               stock_symbol: symbol,
-              price_date: new Date(item.date),
+              price_date: item.date,
               open_price: item.open,
               high_price: item.high,
               low_price: item.low,
@@ -256,14 +261,31 @@ export class StockService {
       );
     }
 
-    // 3️⃣ Merge DB + Yahoo (filtered)
-    const combined = [...dbPrices, ...yfDataMapped].sort(
+    // 3️⃣ Merge DB + Yahoo และจัดการข้อมูลซ้ำที่หลุดรอดมา
+    // เราจะใช้ Map โดยใช้ "วันที่ที่ Normalize แล้ว" เป็น Key เพื่อให้ 1 วันมีได้แค่ 1 Record
+    const uniqueDataMap = new Map<number, any>();
+
+    // ใส่ข้อมูลจาก DB เข้าไปก่อน
+    dbPrices.forEach((p) => {
+      const dateKey = normalizeDate(p.price_date).getTime();
+      uniqueDataMap.set(dateKey, p);
+    });
+
+    // ใส่ข้อมูลจาก Yahoo (yfDataMapped) เข้าไปทับ 
+    // ถ้า Yahoo มีข้อมูลวันเดียวกัน มันจะไปทับข้อมูลใน DB (ซึ่งอาจจะเป็นค่าชั่วคราวระหว่างวัน)
+    yfDataMapped.forEach((p) => {
+      const dateKey = normalizeDate(p.price_date).getTime();
+      uniqueDataMap.set(dateKey, p);
+    });
+
+    // แปลง Map กลับเป็น Array และ Sort
+    const sortedResult = Array.from(uniqueDataMap.values()).sort(
       (a, b) => b.price_date.getTime() - a.price_date.getTime(),
     );
 
     // 4️⃣ Serialize BigInt for JSON
     return JSON.parse(
-      JSON.stringify(combined, (_, value) =>
+      JSON.stringify(sortedResult, (_, value) =>
         typeof value === 'bigint' ? value.toString() : value,
       ),
     );
@@ -392,45 +414,62 @@ export class StockService {
 
     if (!allPrices.length) return [];
 
+    // 2. แก้ไขปัญหาข้อมูลซ้ำวัน (Deduplication)
+    // ใช้ Map โดยเอา Date (00:00:00) เป็น Key เพื่อให้ 1 วันมีได้แค่ 1 ค่า
+    const uniqueMap = new Map<number, (typeof allPrices)[0]>();
+
+    allPrices.forEach((p) => {
+      const dateKey = new Date(p.price_date).setUTCHours(0, 0, 0, 0);
+
+      // ถ้าวันนั้นมีข้อมูลอยู่แล้ว จะไม่ทับ (เพราะเราเรียง desc มา ตัวแรกที่เจอคือตัวที่ "สด" กว่า หรือตรงกับมาตรฐานกว่า)
+      if (!uniqueMap.has(dateKey)) {
+        uniqueMap.set(dateKey, p);
+      }
+    });
+
+    // แปลง Map กลับเป็น Array (ซึ่งตอนนี้จะไม่มีวันซ้ำแล้ว และยังเรียงจาก ใหม่ -> เก่า อยู่)
+    const dedupedPrices = Array.from(uniqueMap.values());
+
     let filtered: typeof allPrices = [];
-    const latestDate = new Date(allPrices[0].price_date); // วันที่ล่าสุดใน DB
+    const latestDate = new Date(dedupedPrices[0].price_date); // วันที่ล่าสุดใน DB
     const rangeStart = new Date(latestDate);
 
     // คำนวณช่วงเวลาถอยจากวันที่ล่าสุด
+    // 3. กรองช่วงเวลาตาม Interval (ใช้ข้อมูลที่คลีนแล้ว)
     switch (interval) {
       case '1D':
-        filtered = allPrices.slice(0, 1); // วันล่าสุด
+        filtered = dedupedPrices.slice(0, 1);
         break;
       case '5D':
         // เอา 5 แถวล่าสุด (5 วันทำการ)
-        filtered = allPrices.slice(0, 5);
+        filtered = dedupedPrices.slice(0, 5);
         break;
       case '1M':
         rangeStart.setMonth(latestDate.getMonth() - 1);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       case '3M':
         rangeStart.setMonth(latestDate.getMonth() - 3);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       case '6M':
         rangeStart.setMonth(latestDate.getMonth() - 6);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       case '1Y':
         rangeStart.setFullYear(latestDate.getFullYear() - 1);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       case '3Y':
         rangeStart.setFullYear(latestDate.getFullYear() - 3);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       case '5Y':
         rangeStart.setFullYear(latestDate.getFullYear() - 5);
-        filtered = allPrices.filter((p) => p.price_date >= rangeStart);
+        filtered = dedupedPrices.filter((p) => p.price_date >= rangeStart);
         break;
       default:
-        filtered = allPrices.slice(0, 1);
+        filtered = dedupedPrices.slice(0, 1);
     }
     // เรียงกลับเป็นเก่าสุด -> ใหม่สุด เพื่อใช้กับ chart
     filtered = filtered.reverse();
