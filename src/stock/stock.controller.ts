@@ -1,3 +1,4 @@
+import { StockAnalysisService } from './stockAnalysis.service';
 // src/stocks/stock.controller.ts
 import {
   Controller,
@@ -23,6 +24,7 @@ export class StockController {
   constructor(
     private readonly stockService: StockService,
     private readonly stockSyncService: StockSyncService,
+    private readonly analysisService: StockAnalysisService,
   ) {}
 
   // 1. รายการหุ้นทั้งหมด
@@ -197,5 +199,30 @@ export class StockController {
   async triggerSyncAll() {
     await this.stockSyncService.handleStockSync();
     return { message: 'Sync started successfully' };
+  }
+
+  //Connect FastAPI
+  @Get('recommendation/:symbol')
+  async getRecommendation(@Param('symbol') symbol: string) {
+    const data = await this.analysisService.getStockRecommendation(symbol);
+    // Return to Frontend
+    return {
+      success: true,
+      data: data,
+    };
+  }
+
+  @Post('update-scoring-cache')
+  @UseGuards(JwtAuthGuard) // Admin?
+  async postUpdateScoring(
+    @Body()
+    body: {
+      start_year: number;
+      end_year: number;
+      window: number;
+      threshold: number;
+    },
+  ) {
+    return this.analysisService.updateScoring(body);
   }
 }
