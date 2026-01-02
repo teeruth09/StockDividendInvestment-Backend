@@ -1,0 +1,23 @@
+# Dependency directories
+node_modules
+npm-debug.log
+
+# Build output
+dist
+build
+
+# Environment variables
+.env
+.env.production
+.env.local
+
+# Git
+.git
+.gitignore
+
+# Misc
+README.md
+LICENSE
+.vscode
+.idea
+*.DS_Store
