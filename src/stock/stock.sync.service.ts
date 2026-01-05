@@ -13,6 +13,10 @@ export class StockSyncService {
   private shouldStop = false;
   private isSyncing = false; // เพิ่มเพื่อป้องกันการรันซ้อน
 
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   // ฟังก์ชันสำหรับสั่งหยุด
   stopSync() {
     if (this.isSyncing) {
@@ -61,7 +65,8 @@ export class StockSyncService {
           this.logger.log(`✅ Successfully synced: ${symbol}`);
 
           // เพิ่ม Delay หยุดรอ 1 วินาที (1000ms) ก่อนไปหุ้นตัวถัดไป
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          //await new Promise((resolve) => setTimeout(resolve, 1000));
+          await this.sleep(1500);
         } catch (error) {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
           this.logger.error(`❌ Failed to sync ${symbol}: ${error.message}`);
