@@ -16,7 +16,11 @@ import {
 import yahooFinance from 'yahoo-finance2';
 import * as NodeCache from 'node-cache';
 import { Dividend } from 'src/dividend/dividend.model';
-import { normalizeDate } from 'src/utils/time-normalize';
+import {
+  findMissingRanges,
+  normalizeDate,
+  splitRange,
+} from 'src/utils/time-normalize';
 
 @Injectable()
 export class StockService {
@@ -188,7 +192,7 @@ export class StockService {
       throw new NotFoundException('startDate and endDate are required');
     }
 
-    // 1️⃣ Fetch DB data in range
+    // 1️⃣ โหลดข้อมูลจาก DB
     const dbPrices = await this.prisma.historicalPrice.findMany({
       where: {
         stock_symbol: symbol,
@@ -197,96 +201,126 @@ export class StockService {
       orderBy: { price_date: 'desc' },
     });
 
-    // 2️⃣ Determine if we need to fetch from Yahoo
-    let yfDataMapped: any[] = [];
-    //const dbDates = new Set(dbPrices.map((p) => p.price_date.getTime()));
     const dbDates = new Set(
       dbPrices.map((p) => normalizeDate(p.price_date).getTime()),
     );
 
-    try {
-      const yfSymbol = YF_SYMBOL_MAP[symbol] || symbol;
+    const yfSymbol = YF_SYMBOL_MAP[symbol] || symbol;
 
-      // Only fetch if DB missing some dates
-      const needFetch =
-        dbPrices.length === 0 ||
-        dbPrices[0].price_date.getTime() > startDate.getTime() ||
-        dbPrices[dbPrices.length - 1].price_date.getTime() < endDate.getTime();
+    // 2️⃣ หาเฉพาะช่วงที่ขาด
+    const missingRanges = findMissingRanges(startDate, endDate, dbDates);
 
-      if (needFetch) {
-        const yfQuery = {
-          interval: '1d' as '1d',
-          period1: startDate,
-          period2: endDate,
-        };
+    const yfDataMapped: any[] = [];
 
-        const yfData = await yahooFinance.historical(yfSymbol, yfQuery);
+    // 3️⃣ lastClose เอาจาก DB (วันล่าสุด)
+    let lastClose =
+      dbPrices.length > 0 ? Number(dbPrices[0].close_price) : null;
 
-        yfDataMapped = yfData
-          .map((item) => ({ ...item, date: normalizeDate(item.date) })) // Normalize วันที่ก่อน
-          .filter((item) => !dbDates.has(item.date.getTime())) // Filter duplicates
-          .map((item, index, arr) => {
-            const prevClose = index > 0 ? arr[index - 1].close : item.close;
-            const priceChange = item.close - prevClose;
-            const percentChange =
-              prevClose !== 0 ? (priceChange / prevClose) * 100 : 0;
+    // 4️⃣ fetch ทีละช่วง (split เพื่อลด rate limit)
+    for (const range of missingRanges) {
+      const chunks = splitRange(range.from, range.to, 90);
 
-            return {
-              stock_symbol: symbol,
-              price_date: item.date,
-              open_price: item.open,
-              high_price: item.high,
-              low_price: item.low,
-              close_price: item.close,
-              price_change: index === 0 ? 0 : priceChange,
-              percent_change: index === 0 ? 0 : percentChange,
-              volume_shares: BigInt(item.volume),
-              volume_value:
-                BigInt(item.volume) * BigInt(Math.round(item.close)),
-            };
-          });
-        console.log('print', yfDataMapped); //print ค่าที่ยังไม่เก็บลง db
+      for (const chunk of chunks) {
+        try {
+          const result = await yahooFinance.chart(
+            yfSymbol,
+            {
+              interval: '1d',
+              period1: chunk.from,
+              period2: chunk.to,
+            },
+            {
+              fetchOptions: {
+                headers: {
+                  'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                    'Chrome/120.0.0.0 Safari/537.36',
+                  'Accept-Language': 'en-US,en;q=0.9',
+                },
+              },
+            } as any,
+          );
 
-        // Save new Yahoo data to DB
-        if (yfDataMapped.length > 0) {
-          await this.prisma.historicalPrice.createMany({
-            data: yfDataMapped,
-            skipDuplicates: true,
-          });
+          if (!result?.quotes?.length) continue;
+
+          // เรียงวัน ASC เพื่อคำนวณ change ถูก
+          result.quotes.sort(
+            (a, b) =>
+              normalizeDate(a.date).getTime() - normalizeDate(b.date).getTime(),
+          );
+
+          const mapped = result.quotes
+            .map((item) => ({
+              ...item,
+              date: normalizeDate(item.date),
+            }))
+            .filter((item) => !dbDates.has(item.date.getTime()))
+            .map((item) => {
+              const close = item.close ?? 0;
+              const prev = lastClose ?? close;
+
+              const priceChange = close - prev;
+              const percentChange = prev !== 0 ? (priceChange / prev) * 100 : 0;
+
+              lastClose = close;
+
+              return {
+                stock_symbol: symbol,
+                price_date: item.date,
+                open_price: item.open ?? 0,
+                high_price: item.high ?? 0,
+                low_price: item.low ?? 0,
+                close_price: close,
+                price_change: priceChange,
+                percent_change: percentChange,
+                volume_shares: BigInt(item.volume ?? 0),
+                volume_value:
+                  item.volume && close
+                    ? BigInt(Math.round(item.volume * close))
+                    : BigInt(0),
+              };
+            });
+          console.log('datalength', mapped.length);
+          console.log('print', mapped);
+
+          yfDataMapped.push(...mapped);
+
+          if (mapped.length > 0) {
+            await this.prisma.historicalPrice.createMany({
+              data: mapped,
+              skipDuplicates: true,
+            });
+          }
+        } catch (err) {
+          if (err.message?.includes('Too Many Requests')) {
+            this.logger.warn(`Yahoo rate limited for ${symbol}, stop fetching`);
+            break;
+          }
+          throw err;
         }
       }
-    } catch (err) {
-      this.logger.error(
-        `Yahoo Finance fetch failed for ${symbol}: ${err.message}`,
-      );
     }
 
-    // 3️⃣ Merge DB + Yahoo และจัดการข้อมูลซ้ำที่หลุดรอดมา
-    // เราจะใช้ Map โดยใช้ "วันที่ที่ Normalize แล้ว" เป็น Key เพื่อให้ 1 วันมีได้แค่ 1 Record
-    const uniqueDataMap = new Map<number, any>();
+    // 5️⃣ merge DB + Yahoo (กันข้อมูลซ้ำ)
+    const uniqueMap = new Map<number, any>();
 
-    // ใส่ข้อมูลจาก DB เข้าไปก่อน
     dbPrices.forEach((p) => {
-      const dateKey = normalizeDate(p.price_date).getTime();
-      uniqueDataMap.set(dateKey, p);
+      uniqueMap.set(normalizeDate(p.price_date).getTime(), p);
     });
 
-    // ใส่ข้อมูลจาก Yahoo (yfDataMapped) เข้าไปทับ 
-    // ถ้า Yahoo มีข้อมูลวันเดียวกัน มันจะไปทับข้อมูลใน DB (ซึ่งอาจจะเป็นค่าชั่วคราวระหว่างวัน)
     yfDataMapped.forEach((p) => {
-      const dateKey = normalizeDate(p.price_date).getTime();
-      uniqueDataMap.set(dateKey, p);
+      uniqueMap.set(normalizeDate(p.price_date).getTime(), p);
     });
 
-    // แปลง Map กลับเป็น Array และ Sort
-    const sortedResult = Array.from(uniqueDataMap.values()).sort(
+    const sorted = Array.from(uniqueMap.values()).sort(
       (a, b) => b.price_date.getTime() - a.price_date.getTime(),
     );
 
-    // 4️⃣ Serialize BigInt for JSON
+    // 6️⃣ serialize BigInt
     return JSON.parse(
-      JSON.stringify(sortedResult, (_, value) =>
-        typeof value === 'bigint' ? value.toString() : value,
+      JSON.stringify(sorted, (_, v) =>
+        typeof v === 'bigint' ? v.toString() : v,
       ),
     );
   }
