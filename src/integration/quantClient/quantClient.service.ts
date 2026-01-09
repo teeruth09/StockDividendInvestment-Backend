@@ -11,10 +11,10 @@ export class QuantClientService {
   constructor(private readonly httpService: HttpService) {}
 
   // helper function POST or GET to other api
-  async get<T>(endpoint: string): Promise<T> {
+  async get<T>(endpoint: string, data?: any): Promise<T> {
     try {
       const { data: response } = await firstValueFrom(
-        this.httpService.get<T>(`${this.baseUrl}${endpoint}`),
+        this.httpService.get<T>(`${this.baseUrl}${endpoint}`, data),
       );
       return response;
     } catch (error) {
