@@ -206,9 +206,33 @@ export class StockService {
     );
 
     const yfSymbol = YF_SYMBOL_MAP[symbol] || symbol;
+    // 1.1 ดึงวันหยุดจาก DB มาเก็บไว้ใน Set
+    const holidays = await this.prisma.marketHoliday.findMany();
+    const holidayDates = new Set(holidays.map((h) => h.holiday_date.getTime()));
 
     // 2️⃣ หาเฉพาะช่วงที่ขาด
-    const missingRanges = findMissingRanges(startDate, endDate, dbDates);
+    let missingRanges = findMissingRanges(
+      startDate,
+      endDate,
+      dbDates,
+      holidayDates,
+    );
+    console.log(missingRanges);
+
+    if (missingRanges.length === 0) {
+      this.logger.log(
+        `Data for ${symbol} is complete in Database. Skipping Call Yahoo Finance`,
+      );
+      // จัดเรียงและ Serialize คืนค่าได้เลย (ไม่ต้องเข้า Loop Yahoo)
+      const sortedDb = dbPrices.sort(
+        (a, b) => b.price_date.getTime() - a.price_date.getTime(),
+      );
+      return JSON.parse(
+        JSON.stringify(sortedDb, (_, v) =>
+          typeof v === 'bigint' ? v.toString() : v,
+        ),
+      );
+    }
 
     const yfDataMapped: any[] = [];
 
@@ -221,13 +245,30 @@ export class StockService {
       const chunks = splitRange(range.from, range.to, 90);
 
       for (const chunk of chunks) {
+        const fromTime = normalizeDate(chunk.from).getTime();
+        const toTime = normalizeDate(chunk.to).getTime();
+
+        // ถ้าเป็นวันเดียวกัน ให้ข้าม หรือขยายช่วง
+        if (fromTime > toTime) {
+          this.logger.debug(
+            `Skipping invalid range: ${chunk.from} to ${chunk.to}`,
+          );
+          continue;
+        }
         try {
+          // Yahoo chart() ไม่ยอมให้ period1 === period2
+          // ต้องขยาย p2 ออกไป 1 วันเฉพาะตอนยิง API เท่านั้น
+          const p1 = chunk.from;
+          let p2 = chunk.to;
+          if (fromTime === toTime) {
+            p2 = new Date(fromTime + 24 * 60 * 60 * 1000);
+          }
           const result = await yahooFinance.chart(
             yfSymbol,
             {
               interval: '1d',
-              period1: chunk.from,
-              period2: chunk.to,
+              period1: p1,
+              period2: p2,
             },
             {
               fetchOptions: {
@@ -255,7 +296,16 @@ export class StockService {
               ...item,
               date: normalizeDate(item.date),
             }))
-            .filter((item) => !dbDates.has(item.date.getTime()))
+            //.filter((item) => !dbDates.has(item.date.getTime()))
+            .filter((item) => {
+              const day = item.date.getDay();
+              const isWeekend = day === 0 || day === 6; // 0 = อาทิตย์, 6 = เสาร์
+              const hasNoVolume = !item.volume || item.volume === 0;
+              const isDuplicate = dbDates.has(item.date.getTime());
+
+              // กรอง: ไม่ใช่เสาร์-อาทิตย์, มีการซื้อขายจริง, และยังไม่มีใน DB
+              return !isWeekend && !hasNoVolume && !isDuplicate;
+            })
             .map((item) => {
               const close = item.close ?? 0;
               const prev = lastClose ?? close;
@@ -291,6 +341,40 @@ export class StockService {
               data: mapped,
               skipDuplicates: true,
             });
+          } else if (mapped.length === 0) {
+            // กรณีขอยิงแล้วไม่มีข้อมูล (หลัง filter)
+            // เราจะไล่เก็บวันหยุดทุกวันตั้งแต่ from ถึง to
+
+            const startTimestamp = normalizeDate(chunk.from).getTime();
+            const endTimestamp = normalizeDate(chunk.to).getTime();
+            const todayTimestamp = normalizeDate(new Date()).getTime();
+
+            // ไล่ Loop จาก timestamp เริ่มต้น ถึง สิ้นสุด
+            // เพิ่มทีละ 24 ชั่วโมง (86400000 ms)
+            for (
+              let currentTs = startTimestamp;
+              currentTs <= endTimestamp;
+              currentTs += 24 * 60 * 60 * 1000
+            ) {
+              const tempDate = new Date(currentTs);
+              const day = tempDate.getDay();
+              const isToday = currentTs === todayTimestamp;
+
+              // กรอง: ไม่ใช่เสาร์-อาทิตย์ และ ไม่ใช่วันนี้
+              if (day !== 0 && day !== 6 && !isToday) {
+                await this.prisma.marketHoliday.upsert({
+                  where: { holiday_date: tempDate },
+                  update: {},
+                  create: {
+                    holiday_date: tempDate,
+                    description: 'Auto-detected (Zero Volume/Stale Data)',
+                  },
+                });
+                this.logger.log(
+                  `Marked ${tempDate.toISOString().split('T')[0]} as Market Holiday`,
+                );
+              }
+            }
           }
         } catch (err) {
           if (err.message?.includes('Too Many Requests')) {
