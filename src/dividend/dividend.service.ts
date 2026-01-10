@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  forwardRef,
+  Inject,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TaxCreditService } from '../taxCredit/taxCredit.service';
@@ -18,6 +20,7 @@ export class DividendService {
   constructor(
     private prisma: PrismaService,
     private taxCreditService: TaxCreditService,
+    @Inject(forwardRef(() => PortfolioService))
     private portfolioService: PortfolioService,
   ) {}
 
@@ -356,5 +359,128 @@ export class DividendService {
     // แปลงจาก Object เป็น Array เพื่อให้ Frontend วนลูปง่าย
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return Object.values(grouped);
+  }
+
+  /**
+   * ค้นหาปันผลที่ใกล้วันซื้อที่สุด และผู้ซื้อจะมีสิทธิ์ได้รับ (ซื้อก่อน XD)
+   */
+  async findNearFutureDividend(symbol: string, transactionDate: Date) {
+    const tDate = new Date(transactionDate);
+    tDate.setHours(0, 0, 0, 0);
+
+    // หาปันผลที่ประกาศแล้ว (Actual) โดยวัน XD ต้อง > วันซื้อ
+    const actualDividend = await this.prisma.dividend.findFirst({
+      where: {
+        stock_symbol: symbol,
+        ex_dividend_date: { gt: tDate }, // ต้องซื้อก่อน XD
+      },
+      orderBy: { ex_dividend_date: 'asc' }, // เอาตัวที่ใกล้ที่สุด
+    });
+
+    if (actualDividend) {
+      return {
+        type: 'ACTUAL',
+        data: actualDividend,
+        dividendPerShare: actualDividend.dividend_per_share,
+      };
+    }
+    // 2. ถ้าไม่มีประกาศจริง ให้หาจากตาราง Prediction
+    // เราจะหาการทำนายล่าสุด (Latest Prediction) ที่มีวัน XD ในอนาคต
+    const predictedDividend = await this.prisma.prediction.findFirst({
+      where: {
+        stock_symbol: symbol,
+        predicted_ex_dividend_date: { gt: tDate },
+      },
+      orderBy: {
+        predicted_ex_dividend_date: 'asc',
+      },
+    });
+    if (predictedDividend) {
+      return {
+        type: 'PREDICTED',
+        data: {
+          dividend_id: `PRED-${predictedDividend.stock_symbol}-${predictedDividend.prediction_date.getTime()}`,
+          stock_symbol: predictedDividend.stock_symbol,
+          ex_dividend_date: predictedDividend.predicted_ex_dividend_date,
+          record_date: predictedDividend.predicted_record_date,
+          payment_date: predictedDividend.predicted_payment_date,
+          dividend_per_share: predictedDividend.predicted_dividend_per_share,
+          confidence_score: predictedDividend.confidence_score, // ส่งคะแนนความเชื่อมั่นไปด้วย
+        },
+        dividendPerShare: predictedDividend.predicted_dividend_per_share || 0,
+      };
+    }
+
+    return null;
+  }
+
+  async getEstimatedBenefit(
+    symbol: string,
+    transactionDate: Date,
+    shares: number,
+  ) {
+    // 1. ดึงข้อมูลหุ้นเพื่อเช็ค Tax Rate และ BOI Support
+    const stock = await this.prisma.stock.findUnique({
+      where: {
+        stock_symbol: symbol,
+      },
+      select: {
+        corporate_tax_rate: true,
+        boi_support: true,
+      },
+    });
+    if (!stock) {
+      throw new NotFoundException(`Stock symbol ${symbol} not found.`);
+    }
+
+    // 2. หาปันผลงวดที่ใกล้ที่สุด (ตามที่เขียนไว้ก่อนหน้า)
+
+    const nearDividend = await this.findNearFutureDividend(
+      symbol,
+      transactionDate,
+    );
+
+    if (!nearDividend) return null;
+
+    const dps = nearDividend.dividendPerShare;
+    const grossDividend = shares * dps;
+    const withholdingTax = grossDividend * 0.1; // ภาษี ณ ที่จ่าย 10%
+    const netDividend = grossDividend - withholdingTax;
+
+    // 3. Logic คำนวณ Tax Credit
+    let estimatedTaxCredit = 0;
+    let taxCreditFactor = 0;
+
+    // เงื่อนไข: จะได้เครดิตภาษีต่อเมื่อ boi_support = false และมี tax_rate > 0
+    if (
+      !stock.boi_support &&
+      stock.corporate_tax_rate &&
+      stock.corporate_tax_rate > 0
+    ) {
+      console.log(`tax:${stock.corporate_tax_rate}`);
+      // สูตร: เครดิตภาษี = เงินปันผล x [อัตราภาษี / (100 - อัตราภาษี)]
+      taxCreditFactor =
+        stock.corporate_tax_rate / (1 - stock.corporate_tax_rate);
+      estimatedTaxCredit = grossDividend * taxCreditFactor;
+    }
+
+    return {
+      dividendInfo: nearDividend.data,
+      type: nearDividend.type,
+      stockTaxInfo: {
+        appliedTaxRate: stock.boi_support ? 0 : stock.corporate_tax_rate,
+        isBoi: stock.boi_support,
+        taxCreditFactor: taxCreditFactor,
+      },
+      calculation: {
+        shares,
+        grossDividend,
+        withholdingTax,
+        netDividend,
+        estimatedTaxCredit,
+        // มูลค่ารวมที่ผู้ถือหุ้นจะได้รับจริง (ถ้ายื่นภาษี)
+        totalBenefitWithCredit: netDividend + estimatedTaxCredit,
+      },
+    };
   }
 }

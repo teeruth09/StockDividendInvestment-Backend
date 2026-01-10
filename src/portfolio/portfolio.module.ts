@@ -6,7 +6,7 @@ import { DividendModule } from 'src/dividend/dividend.module';
 import { PortfolioController } from './portfolio.controller';
 
 @Module({
-  imports: [StockModule, forwardRef(() => DividendModule)],
+  imports: [forwardRef(() => StockModule), forwardRef(() => DividendModule)],
   controllers: [PortfolioController],
   providers: [PrismaService, PortfolioService],
   exports: [PortfolioService],

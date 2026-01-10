@@ -1,6 +1,8 @@
 // src/stocks/stock.service.ts
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -21,13 +23,18 @@ import {
   normalizeDate,
   splitRange,
 } from 'src/utils/time-normalize';
+import { DividendService } from 'src/dividend/dividend.service';
 
 @Injectable()
 export class StockService {
   private readonly cache = new NodeCache({ stdTTL: 3600 }); // cache 1 ชั่วโมง
   private readonly logger = new Logger(StockService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => DividendService))
+    private readonly dividendService: DividendService,
+  ) {}
 
   // ดึงหุ้นทั้งหมด (optionally filter by sector)
   async getAllStocks(sector?: string): Promise<Stock[]> {
@@ -143,31 +150,33 @@ export class StockService {
   // [GET] /stock/:symbol/price-by-date?date=YYYY-MM-DD
   // ===================================
   async getPriceByDate(symbol: string, dateString: string): Promise<number> {
-    // 1. แปลง Date String ให้เป็น Date Object
-    const targetDate = new Date(dateString);
+    // 1. รับ String "2025-08-05" มา แล้วสร้าง Date แบบ Pure UTC
+    const parts = dateString.split('-');
+    const targetDate = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
     if (isNaN(targetDate.getTime())) {
       throw new BadRequestException(
         'Invalid date format. Please use YYYY-MM-DD.',
       );
     }
 
-    // 2. กำหนดช่วงเวลา (จากวันที่นั้นถึงวันที่นั้น)
-    // เพื่อใช้ประโยชน์จาก HistoricalPrice Logic เดิม
-    const startDate = new Date(targetDate.setHours(0, 0, 0, 0));
-    const endDate = new Date(targetDate.setHours(23, 59, 59, 999));
+    // 2.ต้องใช้ setUTCHours เพื่อไม่ให้โดน Timezone Local ดีดวัน
+    const startDate = new Date(targetDate.getTime());
+    startDate.setUTCHours(0, 0, 0, 0); // 2025-08-04 00:00:00.000Z
+
+    const endDate = new Date(targetDate.getTime());
+    endDate.setUTCHours(23, 59, 59, 999); // 2025-08-04 23:59:59.999Z
 
     // 3. เรียกใช้ฟังก์ชันดึงราคาย้อนหลังที่ครอบคลุมการดึงจาก Yahoo ด้วย
     const prices: any[] = await this.getHistoricalPrices(
-      // 💡 Note: ต้องเปลี่ยน type return ของ getHistoricalPrices เป็น array
       symbol,
       startDate,
       endDate,
     );
 
     // 4. ค้นหาราคาปิด ณ วันที่ระบุ
+    const targetISO = targetDate.toISOString().split('T')[0]; // "2025-08-04"
     const priceRecord = prices.find(
-      (p) =>
-        new Date(p.price_date).toDateString() === targetDate.toDateString(),
+      (p) => new Date(p.price_date).toISOString().split('T')[0] === targetISO,
     );
 
     if (!priceRecord) {
@@ -178,7 +187,7 @@ export class StockService {
     }
 
     // 5. ส่งค่า Close Price กลับไป
-    return priceRecord.close_price as number;
+    return Number(priceRecord.close_price);
   }
 
   // Fetch Historical Prices (DB first, fallback Yahoo Finance)
@@ -438,7 +447,7 @@ export class StockService {
       if (latestPrice !== undefined && latestPrice !== null) {
         currentPricesMap[stock.stock_symbol] = latestPrice;
       } else {
-        // 💡 ถ้าไม่พบราคา อาจจะใส่ 0 หรือ Log Warning ขึ้นอยู่กับ business requirement
+        // ถ้าไม่พบราคา อาจจะใส่ 0 หรือ Log Warning ขึ้นอยู่กับ business requirement
         currentPricesMap[stock.stock_symbol] = 0;
         console.warn(`Price not found for stock: ${stock.stock_symbol}`);
       }
@@ -707,6 +716,27 @@ export class StockService {
       name: stock.name,
       latestPrice: latest,
       summary: result,
+    };
+  }
+
+  //ดึงราคาวันที่จะซื้อและเงินปันผลเครดิตภาษีที่คาดว่าจะได้รับ
+  async getHistoricalBuyContext(symbol: string, date: string, shares: number) {
+    // 1. ดึงราคา ณ วันนั้น
+    const price = await this.getPriceByDate(symbol, date);
+
+    // 2. ดึงข้อมูลปันผลที่จะได้รับหากซื้อวันนี้
+    const benefit = await this.dividendService.getEstimatedBenefit(
+      symbol,
+      new Date(date),
+      shares,
+    );
+
+    return {
+      symbol,
+      purchaseDate: date,
+      pricePerShare: price,
+      totalCost: price * shares,
+      estimatedDividend: benefit,
     };
   }
 }

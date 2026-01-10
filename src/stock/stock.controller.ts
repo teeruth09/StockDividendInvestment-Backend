@@ -193,6 +193,28 @@ export class StockController {
     return summary;
   }
 
+  //get ข้อมูลเงินปันผลและเครดิตภาษีที่คาดจะได้รับจากการซื้อรอบที่ใกล้ที่สุด
+  @Get(':symbol/purchase-metadata')
+  async getPurchaseMetadata(
+    @Param('symbol') symbol: string,
+    @Query('date') dateString: string,
+    @Query('shares') shares: string,
+  ) {
+    if (!dateString || !shares) {
+      throw new BadRequestException(
+        'Date and shares are required for analysis.',
+      );
+    }
+
+    const numShares = parseInt(shares, 10);
+
+    return await this.stockService.getHistoricalBuyContext(
+      symbol,
+      dateString,
+      numShares,
+    );
+  }
+
   //Auto mation sync ราคาหุ้นรยวัน ทำงานตาม schedule
   @Post('sync-all')
   @UseGuards(JwtAuthGuard, AdminGuard) // รันตามลำดับ: เช็ค Token -> เช็ค Email
