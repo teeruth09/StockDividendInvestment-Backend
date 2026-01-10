@@ -206,3 +206,9 @@ model Portfolio {
   @@id([user_id, stock_symbol])
 }
 
+//MarketHoliday for HistoricalPriceData to tag that day has no data
+model MarketHoliday {
+  holiday_date DateTime @id @db.Date
+  description  String?  @default("Market Closed / No Data")
+  created_at    DateTime @default(now())
+}

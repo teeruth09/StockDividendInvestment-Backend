@@ -22,6 +22,7 @@ import { getStartDateFromInterval } from 'src/utils/time-interval-utils';
 export class PortfolioService {
   constructor(
     private prisma: PrismaService,
+    @Inject(forwardRef(() => StockService))
     private stockService: StockService, //Inject Service ราคาหุ้น
     @Inject(forwardRef(() => DividendService)) //forwardRef ใช้เมื่อเกิด Circular Dependency คือสถานการณ์ที่ Module สองตัวขึ้นไปพึ่งพา (Import) ซึ่งกันและกันโดยตรงหรือโดยอ้อม ทำให้ NestJS ไม่สามารถกำหนดลำดับการเริ่มต้น
     private dividendService: DividendService,

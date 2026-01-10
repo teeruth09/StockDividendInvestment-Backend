@@ -1,13 +1,14 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { StockController } from './stock.controller';
 import { PrismaService } from 'src/prisma.service';
 import { StockSyncService } from './stock.sync.service';
 import { QuantClientModule } from 'src/integration/quantClient/quantClient.module';
 import { StockAnalysisService } from './stockAnalysis.service';
+import { DividendModule } from 'src/dividend/dividend.module';
 
 @Module({
-  imports: [QuantClientModule], //Connect FastApi
+  imports: [QuantClientModule, forwardRef(() => DividendModule)], //Connect FastApi
   providers: [
     StockService,
     PrismaService,

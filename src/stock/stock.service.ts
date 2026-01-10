@@ -1,6 +1,8 @@
 // src/stocks/stock.service.ts
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -21,13 +23,18 @@ import {
   normalizeDate,
   splitRange,
 } from 'src/utils/time-normalize';
+import { DividendService } from 'src/dividend/dividend.service';
 
 @Injectable()
 export class StockService {
   private readonly cache = new NodeCache({ stdTTL: 3600 }); // cache 1 ชั่วโมง
   private readonly logger = new Logger(StockService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => DividendService))
+    private readonly dividendService: DividendService,
+  ) {}
 
   // ดึงหุ้นทั้งหมด (optionally filter by sector)
   async getAllStocks(sector?: string): Promise<Stock[]> {
@@ -143,31 +150,33 @@ export class StockService {
   // [GET] /stock/:symbol/price-by-date?date=YYYY-MM-DD
   // ===================================
   async getPriceByDate(symbol: string, dateString: string): Promise<number> {
-    // 1. แปลง Date String ให้เป็น Date Object
-    const targetDate = new Date(dateString);
+    // 1. รับ String "2025-08-05" มา แล้วสร้าง Date แบบ Pure UTC
+    const parts = dateString.split('-');
+    const targetDate = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
     if (isNaN(targetDate.getTime())) {
       throw new BadRequestException(
         'Invalid date format. Please use YYYY-MM-DD.',
       );
     }
 
-    // 2. กำหนดช่วงเวลา (จากวันที่นั้นถึงวันที่นั้น)
-    // เพื่อใช้ประโยชน์จาก HistoricalPrice Logic เดิม
-    const startDate = new Date(targetDate.setHours(0, 0, 0, 0));
-    const endDate = new Date(targetDate.setHours(23, 59, 59, 999));
+    // 2.ต้องใช้ setUTCHours เพื่อไม่ให้โดน Timezone Local ดีดวัน
+    const startDate = new Date(targetDate.getTime());
+    startDate.setUTCHours(0, 0, 0, 0); // 2025-08-04 00:00:00.000Z
+
+    const endDate = new Date(targetDate.getTime());
+    endDate.setUTCHours(23, 59, 59, 999); // 2025-08-04 23:59:59.999Z
 
     // 3. เรียกใช้ฟังก์ชันดึงราคาย้อนหลังที่ครอบคลุมการดึงจาก Yahoo ด้วย
     const prices: any[] = await this.getHistoricalPrices(
-      // 💡 Note: ต้องเปลี่ยน type return ของ getHistoricalPrices เป็น array
       symbol,
       startDate,
       endDate,
     );
 
     // 4. ค้นหาราคาปิด ณ วันที่ระบุ
+    const targetISO = targetDate.toISOString().split('T')[0]; // "2025-08-04"
     const priceRecord = prices.find(
-      (p) =>
-        new Date(p.price_date).toDateString() === targetDate.toDateString(),
+      (p) => new Date(p.price_date).toISOString().split('T')[0] === targetISO,
     );
 
     if (!priceRecord) {
@@ -178,7 +187,7 @@ export class StockService {
     }
 
     // 5. ส่งค่า Close Price กลับไป
-    return priceRecord.close_price as number;
+    return Number(priceRecord.close_price);
   }
 
   // Fetch Historical Prices (DB first, fallback Yahoo Finance)
@@ -206,9 +215,33 @@ export class StockService {
     );
 
     const yfSymbol = YF_SYMBOL_MAP[symbol] || symbol;
+    // 1.1 ดึงวันหยุดจาก DB มาเก็บไว้ใน Set
+    const holidays = await this.prisma.marketHoliday.findMany();
+    const holidayDates = new Set(holidays.map((h) => h.holiday_date.getTime()));
 
     // 2️⃣ หาเฉพาะช่วงที่ขาด
-    const missingRanges = findMissingRanges(startDate, endDate, dbDates);
+    let missingRanges = findMissingRanges(
+      startDate,
+      endDate,
+      dbDates,
+      holidayDates,
+    );
+    console.log(missingRanges);
+
+    if (missingRanges.length === 0) {
+      this.logger.log(
+        `Data for ${symbol} is complete in Database. Skipping Call Yahoo Finance`,
+      );
+      // จัดเรียงและ Serialize คืนค่าได้เลย (ไม่ต้องเข้า Loop Yahoo)
+      const sortedDb = dbPrices.sort(
+        (a, b) => b.price_date.getTime() - a.price_date.getTime(),
+      );
+      return JSON.parse(
+        JSON.stringify(sortedDb, (_, v) =>
+          typeof v === 'bigint' ? v.toString() : v,
+        ),
+      );
+    }
 
     const yfDataMapped: any[] = [];
 
@@ -221,13 +254,30 @@ export class StockService {
       const chunks = splitRange(range.from, range.to, 90);
 
       for (const chunk of chunks) {
+        const fromTime = normalizeDate(chunk.from).getTime();
+        const toTime = normalizeDate(chunk.to).getTime();
+
+        // ถ้าเป็นวันเดียวกัน ให้ข้าม หรือขยายช่วง
+        if (fromTime > toTime) {
+          this.logger.debug(
+            `Skipping invalid range: ${chunk.from} to ${chunk.to}`,
+          );
+          continue;
+        }
         try {
+          // Yahoo chart() ไม่ยอมให้ period1 === period2
+          // ต้องขยาย p2 ออกไป 1 วันเฉพาะตอนยิง API เท่านั้น
+          const p1 = chunk.from;
+          let p2 = chunk.to;
+          if (fromTime === toTime) {
+            p2 = new Date(fromTime + 24 * 60 * 60 * 1000);
+          }
           const result = await yahooFinance.chart(
             yfSymbol,
             {
               interval: '1d',
-              period1: chunk.from,
-              period2: chunk.to,
+              period1: p1,
+              period2: p2,
             },
             {
               fetchOptions: {
@@ -255,7 +305,16 @@ export class StockService {
               ...item,
               date: normalizeDate(item.date),
             }))
-            .filter((item) => !dbDates.has(item.date.getTime()))
+            //.filter((item) => !dbDates.has(item.date.getTime()))
+            .filter((item) => {
+              const day = item.date.getDay();
+              const isWeekend = day === 0 || day === 6; // 0 = อาทิตย์, 6 = เสาร์
+              const hasNoVolume = !item.volume || item.volume === 0;
+              const isDuplicate = dbDates.has(item.date.getTime());
+
+              // กรอง: ไม่ใช่เสาร์-อาทิตย์, มีการซื้อขายจริง, และยังไม่มีใน DB
+              return !isWeekend && !hasNoVolume && !isDuplicate;
+            })
             .map((item) => {
               const close = item.close ?? 0;
               const prev = lastClose ?? close;
@@ -291,6 +350,40 @@ export class StockService {
               data: mapped,
               skipDuplicates: true,
             });
+          } else if (mapped.length === 0) {
+            // กรณีขอยิงแล้วไม่มีข้อมูล (หลัง filter)
+            // เราจะไล่เก็บวันหยุดทุกวันตั้งแต่ from ถึง to
+
+            const startTimestamp = normalizeDate(chunk.from).getTime();
+            const endTimestamp = normalizeDate(chunk.to).getTime();
+            const todayTimestamp = normalizeDate(new Date()).getTime();
+
+            // ไล่ Loop จาก timestamp เริ่มต้น ถึง สิ้นสุด
+            // เพิ่มทีละ 24 ชั่วโมง (86400000 ms)
+            for (
+              let currentTs = startTimestamp;
+              currentTs <= endTimestamp;
+              currentTs += 24 * 60 * 60 * 1000
+            ) {
+              const tempDate = new Date(currentTs);
+              const day = tempDate.getDay();
+              const isToday = currentTs === todayTimestamp;
+
+              // กรอง: ไม่ใช่เสาร์-อาทิตย์ และ ไม่ใช่วันนี้
+              if (day !== 0 && day !== 6 && !isToday) {
+                await this.prisma.marketHoliday.upsert({
+                  where: { holiday_date: tempDate },
+                  update: {},
+                  create: {
+                    holiday_date: tempDate,
+                    description: 'Auto-detected (Zero Volume/Stale Data)',
+                  },
+                });
+                this.logger.log(
+                  `Marked ${tempDate.toISOString().split('T')[0]} as Market Holiday`,
+                );
+              }
+            }
           }
         } catch (err) {
           if (err.message?.includes('Too Many Requests')) {
@@ -354,7 +447,7 @@ export class StockService {
       if (latestPrice !== undefined && latestPrice !== null) {
         currentPricesMap[stock.stock_symbol] = latestPrice;
       } else {
-        // 💡 ถ้าไม่พบราคา อาจจะใส่ 0 หรือ Log Warning ขึ้นอยู่กับ business requirement
+        // ถ้าไม่พบราคา อาจจะใส่ 0 หรือ Log Warning ขึ้นอยู่กับ business requirement
         currentPricesMap[stock.stock_symbol] = 0;
         console.warn(`Price not found for stock: ${stock.stock_symbol}`);
       }
@@ -623,6 +716,27 @@ export class StockService {
       name: stock.name,
       latestPrice: latest,
       summary: result,
+    };
+  }
+
+  //ดึงราคาวันที่จะซื้อและเงินปันผลเครดิตภาษีที่คาดว่าจะได้รับ
+  async getHistoricalBuyContext(symbol: string, date: string, shares: number) {
+    // 1. ดึงราคา ณ วันนั้น
+    const price = await this.getPriceByDate(symbol, date);
+
+    // 2. ดึงข้อมูลปันผลที่จะได้รับหากซื้อวันนี้
+    const benefit = await this.dividendService.getEstimatedBenefit(
+      symbol,
+      new Date(date),
+      shares,
+    );
+
+    return {
+      symbol,
+      purchaseDate: date,
+      pricePerShare: price,
+      totalCost: price * shares,
+      estimatedDividend: benefit,
     };
   }
 }

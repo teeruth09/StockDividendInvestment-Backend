@@ -193,6 +193,28 @@ export class StockController {
     return summary;
   }
 
+  //get ข้อมูลเงินปันผลและเครดิตภาษีที่คาดจะได้รับจากการซื้อรอบที่ใกล้ที่สุด
+  @Get(':symbol/purchase-metadata')
+  async getPurchaseMetadata(
+    @Param('symbol') symbol: string,
+    @Query('date') dateString: string,
+    @Query('shares') shares: string,
+  ) {
+    if (!dateString || !shares) {
+      throw new BadRequestException(
+        'Date and shares are required for analysis.',
+      );
+    }
+
+    const numShares = parseInt(shares, 10);
+
+    return await this.stockService.getHistoricalBuyContext(
+      symbol,
+      dateString,
+      numShares,
+    );
+  }
+
   //Auto mation sync ราคาหุ้นรยวัน ทำงานตาม schedule
   @Post('sync-all')
   @UseGuards(JwtAuthGuard, AdminGuard) // รันตามลำดับ: เช็ค Token -> เช็ค Email
@@ -201,7 +223,15 @@ export class StockController {
     return { message: 'Sync started successfully' };
   }
 
-  //Connect FastAPI
+  /*
+    Connect Backend nestjs to FastAPI
+    API List 
+    1.update scoring cache เป็นการ update score หุ้นแต่ละตัว
+    2.recomendation แนะนำหุ้นตาม score ที่ได้
+    3.analyze tdts get ค่า tdts ที่คำนวนได้ในหุ้นรายตัว
+    4.update indicator cache เป็นการ update กราฟเทคนิค
+    5.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
+  */
   @Get('recommendation/:symbol')
   async getRecommendation(@Param('symbol') symbol: string) {
     const data = await this.analysisService.getStockRecommendation(symbol);
@@ -213,7 +243,6 @@ export class StockController {
   }
 
   @Post('update-scoring-cache')
-  @UseGuards(JwtAuthGuard) // Admin?
   async postUpdateScoring(
     @Body()
     body: {
@@ -224,5 +253,37 @@ export class StockController {
     },
   ) {
     return this.analysisService.updateScoring(body);
+  }
+
+  //Result มาจาก cache ดังนั้นรอบถัดไปไม่ต้องส่ง year ไปก็ได้
+  @Get('analyze-tdts/:symbol')
+  async getAnalyzeTdtsScoring(
+    @Param('symbol') symbol: string,
+    @Query('start_year') start_year?: number,
+    @Query('end_year') end_year?: number,
+    @Query('threshold') threshold?: number,
+  ) {
+    return this.analysisService.getAnalyzeTdtsScore({
+      symbol,
+      start_year,
+      end_year,
+      threshold,
+    });
+  }
+
+  @Post('update-indicator-cache')
+  async postUpdateIndicator(
+    @Body()
+    body: {
+      start_year: number;
+    },
+  ) {
+    return this.analysisService.updateIndicator(body);
+  }
+
+  //Result มาจาก cache
+  @Get('technical-history/:symbol')
+  async getTechnicalHistory(@Param('symbol') symbol: string) {
+    return this.analysisService.getTechnicalHistory(symbol);
   }
 }

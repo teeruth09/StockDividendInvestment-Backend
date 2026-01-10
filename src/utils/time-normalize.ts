@@ -15,34 +15,46 @@ export function addDays(date: Date, days: number): Date {
 export function findMissingRanges(
   start: Date,
   end: Date,
-  existingDates: Set<number>,
-): Array<{ from: Date; to: Date }> {
-  const ranges: Array<{ from: Date; to: Date }> = [];
-
-  let cursor = normalizeDate(start);
-  const endDay = normalizeDate(end);
-
+  dbDates: Set<number>,
+  holidayDates: Set<number>, // รับ Set ของวันหยุดเพิ่ม
+) {
+  const missing: { from: Date; to: Date }[] = [];
+  const current = new Date(start);
+  const today = new Date().setUTCHours(0, 0, 0, 0);
   let rangeStart: Date | null = null;
 
-  while (cursor <= endDay) {
-    const key = cursor.getTime();
-    const exists = existingDates.has(key);
+  while (current <= end) {
+    const currentTime = normalizeDate(current).getTime();
+    const dayOfWeek = current.getDay();
 
-    if (!exists && !rangeStart) {
-      rangeStart = new Date(cursor);
+    //เงื่อนไขสำคัญ:
+    // 1. ต้องไม่ใช่เสาร์ (6) และอาทิตย์ (0)
+    // 2. ต้องไม่ใช่ "วันนี้" (เพราะข้อมูลยังไม่มา/ไม่สมบูรณ์)
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const isToday = currentTime === today;
+    const isHoliday = holidayDates.has(currentTime); // เช็คว่าอยู่ในตารางวันหยุดไหม
+    const existsInDb = dbDates.has(currentTime);
+
+    if (!existsInDb && !isWeekend && !isToday && !isHoliday) {
+      if (!rangeStart) rangeStart = new Date(current);
+    } else {
+      if (rangeStart) {
+        // ถอยหลังไป 1 วันจาก current เพื่อปิดช่วง range ที่ขาด
+        const rangeEnd = new Date(current);
+        rangeEnd.setDate(rangeEnd.getDate() - 1);
+        missing.push({ from: rangeStart, to: rangeEnd });
+        rangeStart = null;
+      }
     }
-
-    if ((exists || cursor.getTime() === endDay.getTime()) && rangeStart) {
-      const rangeEnd = exists ? addDays(cursor, -1) : new Date(cursor);
-
-      ranges.push({ from: rangeStart, to: rangeEnd });
-      rangeStart = null;
-    }
-
-    cursor = addDays(cursor, 1);
+    current.setDate(current.getDate() + 1);
   }
 
-  return ranges;
+  // เก็บช่วงสุดท้ายถ้ายังมีค้างอยู่
+  if (rangeStart) {
+    missing.push({ from: rangeStart, to: new Date(end) });
+  }
+
+  return missing;
 }
 
 export function splitRange(
