@@ -229,8 +229,10 @@ export class StockController {
     1.update scoring cache เป็นการ update score หุ้นแต่ละตัว
     2.recomendation แนะนำหุ้นตาม score ที่ได้
     3.analyze tdts get ค่า tdts ที่คำนวนได้ในหุ้นรายตัว
-    4.update indicator cache เป็นการ update กราฟเทคนิค
-    5.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
+    4.analyze tema
+    5.analyze combined tdts+tema
+    6.update indicator cache เป็นการ update กราฟเทคนิค
+    7.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
   */
   @Get('recommendation/:symbol')
   async getRecommendation(@Param('symbol') symbol: string) {
@@ -268,6 +270,42 @@ export class StockController {
       start_year,
       end_year,
       threshold,
+    });
+  }
+
+  //Result มาจาก cache ดังนั้นรอบถัดไปไม่ต้องส่ง year ไปก็ได้
+  @Get('analyze-tema/:symbol')
+  async getAnalyzeTemaScoring(
+    @Param('symbol') symbol: string,
+    @Query('start_year') start_year?: number,
+    @Query('end_year') end_year?: number,
+    @Query('threshold') threshold?: number,
+    @Query('window') window?: number,
+  ) {
+    return this.analysisService.getAnalyzeTemaScore({
+      symbol,
+      start_year,
+      end_year,
+      threshold,
+      window,
+    });
+  }
+
+  //Combine tdts and tema
+  @Get('analyze-combined/:symbol')
+  async getCombinedAnalysis(
+    @Param('symbol') symbol: string,
+    @Query('start_year') start_year?: number,
+    @Query('end_year') end_year?: number,
+    @Query('threshold') threshold?: number,
+    @Query('window') window?: number,
+  ) {
+    return this.analysisService.getCombinedAnalysis({
+      symbol,
+      start_year,
+      end_year,
+      threshold,
+      window,
     });
   }
 

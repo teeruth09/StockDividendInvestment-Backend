@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { QuantClientService } from 'src/integration/quantClient/quantClient.service';
+import {
+  AnalysisResponse,
+  TdtsCleanData,
+  TemaCleanData,
+} from './stockAnalysis.type';
 
 interface ScoringCriteria {
   start_year: number;
@@ -13,6 +18,22 @@ interface AnalyzeTdts {
   start_year?: number;
   end_year?: number;
   threshold?: number;
+}
+
+interface AnalyzeTema {
+  symbol: string;
+  start_year?: number;
+  end_year?: number;
+  threshold?: number;
+  window?: number;
+}
+
+interface CombineAnalyzeTdtsTema {
+  symbol: string;
+  start_year?: number;
+  end_year?: number;
+  threshold?: number;
+  window?: number;
 }
 
 interface UpdateIndicatorCache {
@@ -35,7 +56,7 @@ export class StockAnalysisService {
     //[POST] Trigger Background Task to calculate Scores & Clusters for ALL SET50 stocks.
     const payload: ScoringCriteria = criteria ?? {
       start_year: 2022,
-      end_year: 2024,
+      end_year: 2025,
       window: 15,
       threshold: 20,
     };
@@ -49,7 +70,7 @@ export class StockAnalysisService {
     const {
       symbol,
       start_year = 2022,
-      end_year = 2024,
+      end_year = 2025,
       threshold = 10,
     } = payload;
 
@@ -67,6 +88,93 @@ export class StockAnalysisService {
         threshold,
       },
     });
+  }
+
+  //get analyze TEMA
+  async getAnalyzeTemaScore(payload: AnalyzeTema) {
+    const {
+      symbol,
+      start_year = 2022,
+      end_year = 2025,
+      threshold = 20,
+      window = 15,
+    } = payload;
+
+    const upperSymbol = payload.symbol.toUpperCase();
+
+    console.log('payload', payload);
+
+    const endpoint = `/analyze_tema/${upperSymbol}`;
+
+    return this.quantClient.get<string>(endpoint, {
+      params: {
+        symbol,
+        start_year,
+        end_year,
+        threshold,
+        window,
+      },
+    });
+  }
+
+  //Combine TDTS and TEMA
+  async getCombinedAnalysis(params: CombineAnalyzeTdtsTema) {
+    const { symbol, start_year, end_year, threshold, window } = params;
+
+    // 1. ดึงข้อมูลดิบมาเป็น String ก่อน
+    const [tdtsRaw, temaRaw] = await Promise.all([
+      this.getAnalyzeTdtsScore({
+        symbol,
+        start_year,
+        end_year,
+        threshold,
+      }),
+      this.getAnalyzeTemaScore({
+        symbol,
+        start_year,
+        end_year,
+        threshold,
+        window,
+      }),
+    ]);
+    // 2. Parse JSON และระบุ Type
+    const tdtsResult: AnalysisResponse<TdtsCleanData> =
+      typeof tdtsRaw === 'string' ? JSON.parse(tdtsRaw) : tdtsRaw;
+    const temaResult: AnalysisResponse<TemaCleanData> =
+      typeof temaRaw === 'string' ? JSON.parse(temaRaw) : temaRaw;
+
+    const tdtsList = tdtsResult.data?.clean_data || [];
+    const temaList = temaResult.data?.clean_data || [];
+
+    // 3. สร้าง Map และ Merge ตามปกติ (ระบุ Type เพื่อป้องกัน Error Price_TEMA)
+    const temaMap = new Map<string, TemaCleanData>(
+      temaList.map((item) => [item.Ex_Date, item]),
+    );
+
+    // 3. Merge ข้อมูล
+    const mergedData = tdtsList.map((tdts) => {
+      const tema = temaMap.get(tdts.Ex_Date);
+      return {
+        exDate: tdts.Ex_Date,
+        symbol: tdts.Stock,
+        year: tdts.Year,
+        dps: tdts.DPS,
+        pCum: tdts.P_cum,
+        pEx: tdts.P_ex,
+        dyPercent: tdts['DY (%)'],
+        pdPercent: tdts['PD (%)'],
+        tdtsScore: tdts['T-DTS'],
+        temaPrice: tema ? tema.Price_TEMA : null,
+        retBfTema: tema ? tema['Ret_Bf_TEMA (%)'] : 0,
+        retAfTema: tema ? tema['Ret_Af_TEMA (%)'] : 0,
+      };
+    });
+
+    return {
+      status: 'success',
+      symbol,
+      data: mergedData,
+    };
   }
 
   //[POST] Trigger Background Task to calculate MACD/RSI for ALL SET50 stocks.

@@ -6,6 +6,7 @@ import { StockSyncService } from './stock.sync.service';
 import { QuantClientModule } from 'src/integration/quantClient/quantClient.module';
 import { StockAnalysisService } from './stockAnalysis.service';
 import { DividendModule } from 'src/dividend/dividend.module';
+import { StockAnalysisSyncService } from './stockAnalysis.sync.service';
 
 @Module({
   imports: [QuantClientModule, forwardRef(() => DividendModule)], //Connect FastApi
@@ -14,6 +15,7 @@ import { DividendModule } from 'src/dividend/dividend.module';
     PrismaService,
     StockSyncService,
     StockAnalysisService,
+    StockAnalysisSyncService,
   ],
   controllers: [StockController],
   exports: [StockService],
