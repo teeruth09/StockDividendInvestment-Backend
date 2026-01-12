@@ -18,6 +18,7 @@ import { CreateStockDto, Stock, UpdateStockDto } from './stock.model';
 import { StockSyncService } from './stock.sync.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AdminGuard } from 'src/auth/admin.guard';
+import { StockRecommendationService } from './stockRecommendation.service';
 
 @Controller('stock')
 export class StockController {
@@ -25,6 +26,7 @@ export class StockController {
     private readonly stockService: StockService,
     private readonly stockSyncService: StockSyncService,
     private readonly analysisService: StockAnalysisService,
+    private readonly recommendService: StockRecommendationService,
   ) {}
 
   // 1. รายการหุ้นทั้งหมด
@@ -229,8 +231,11 @@ export class StockController {
     1.update scoring cache เป็นการ update score หุ้นแต่ละตัว
     2.recomendation แนะนำหุ้นตาม score ที่ได้
     3.analyze tdts get ค่า tdts ที่คำนวนได้ในหุ้นรายตัว
-    4.update indicator cache เป็นการ update กราฟเทคนิค
-    5.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
+    4.analyze tema
+    5.analyze combined tdts+tema
+    6.update indicator cache เป็นการ update กราฟเทคนิค
+    7.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
+    8.recommended stock
   */
   @Get('recommendation/:symbol')
   async getRecommendation(@Param('symbol') symbol: string) {
@@ -271,6 +276,42 @@ export class StockController {
     });
   }
 
+  //Result มาจาก cache ดังนั้นรอบถัดไปไม่ต้องส่ง year ไปก็ได้
+  @Get('analyze-tema/:symbol')
+  async getAnalyzeTemaScoring(
+    @Param('symbol') symbol: string,
+    @Query('start_year') start_year?: number,
+    @Query('end_year') end_year?: number,
+    @Query('threshold') threshold?: number,
+    @Query('window') window?: number,
+  ) {
+    return this.analysisService.getAnalyzeTemaScore({
+      symbol,
+      start_year,
+      end_year,
+      threshold,
+      window,
+    });
+  }
+
+  //Combine tdts and tema
+  @Get('analyze-combined/:symbol')
+  async getCombinedAnalysis(
+    @Param('symbol') symbol: string,
+    @Query('start_year') start_year?: number,
+    @Query('end_year') end_year?: number,
+    @Query('threshold') threshold?: number,
+    @Query('window') window?: number,
+  ) {
+    return this.analysisService.getCombinedAnalysis({
+      symbol,
+      start_year,
+      end_year,
+      threshold,
+      window,
+    });
+  }
+
   @Post('update-indicator-cache')
   async postUpdateIndicator(
     @Body()
@@ -285,5 +326,27 @@ export class StockController {
   @Get('technical-history/:symbol')
   async getTechnicalHistory(@Param('symbol') symbol: string) {
     return this.analysisService.getTechnicalHistory(symbol);
+  }
+
+  //Result มาจาก cache
+  @Get('recommendation/')
+  async getRecommendedStock(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('search') search?: string,
+    @Query('sector') sector?: string,
+    @Query('cluster') cluster?: string,
+    @Query('sortBy') sortBy: string = 'totalScore', //default
+    @Query('order') order: 'asc' | 'desc' = 'desc',
+  ) {
+    return this.recommendService.getRankedRecommendations({
+      page,
+      limit,
+      search,
+      sector,
+      cluster,
+      sortBy,
+      order,
+    });
   }
 }
