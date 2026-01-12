@@ -18,6 +18,7 @@ import { CreateStockDto, Stock, UpdateStockDto } from './stock.model';
 import { StockSyncService } from './stock.sync.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AdminGuard } from 'src/auth/admin.guard';
+import { StockRecommendationService } from './stockRecommendation.service';
 
 @Controller('stock')
 export class StockController {
@@ -25,6 +26,7 @@ export class StockController {
     private readonly stockService: StockService,
     private readonly stockSyncService: StockSyncService,
     private readonly analysisService: StockAnalysisService,
+    private readonly recommendService: StockRecommendationService,
   ) {}
 
   // 1. รายการหุ้นทั้งหมด
@@ -233,6 +235,7 @@ export class StockController {
     5.analyze combined tdts+tema
     6.update indicator cache เป็นการ update กราฟเทคนิค
     7.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
+    8.recommended stock
   */
   @Get('recommendation/:symbol')
   async getRecommendation(@Param('symbol') symbol: string) {
@@ -323,5 +326,27 @@ export class StockController {
   @Get('technical-history/:symbol')
   async getTechnicalHistory(@Param('symbol') symbol: string) {
     return this.analysisService.getTechnicalHistory(symbol);
+  }
+
+  //Result มาจาก cache
+  @Get('recommendation/')
+  async getRecommendedStock(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('search') search?: string,
+    @Query('sector') sector?: string,
+    @Query('cluster') cluster?: string,
+    @Query('sortBy') sortBy: string = 'totalScore', //default
+    @Query('order') order: 'asc' | 'desc' = 'desc',
+  ) {
+    return this.recommendService.getRankedRecommendations({
+      page,
+      limit,
+      search,
+      sector,
+      cluster,
+      sortBy,
+      order,
+    });
   }
 }

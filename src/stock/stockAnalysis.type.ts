@@ -32,3 +32,42 @@ export interface AnalysisResponse<T> {
     clean_data: T[];
   };
 }
+
+export interface MLRecommendationRaw {
+  Stock: string;
+  'DY (%)': number;
+  T_DTS: number;
+  'Ret_Af_TEMA (%)': number;
+  'Ret_Bf_TEMA (%)': number;
+  Cluster: number;
+  'Total_Score (%)': number;
+  Cluster_Name: string;
+}
+
+export interface MLApiResponse {
+  status: string;
+  source: string;
+  count: number;
+  data: MLRecommendationRaw[];
+}
+
+export type MLRecommendationArray = MLRecommendationRaw[];
+
+export interface StockRecommendation {
+  symbol: string;
+  stockSector: string;
+  clusterName: string;
+  clusterId: number;
+  totalScore: number;
+  dyPercent: number;
+
+  latestPrice: number;
+  dividendExDate: number;
+  dividendDps: number;
+  predictExDate: number;
+  predictDps: number;
+  //confidence: number,
+
+  retBfTema: number;
+  retAfTema: number;
+}
