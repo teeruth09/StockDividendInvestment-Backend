@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { QuantClientService } from 'src/integration/quantClient/quantClient.service';
 import { StockService } from './stock.service';
 import {
+  ClusterTypeML,
   MLApiResponse,
   MLRecommendationRaw,
   StockRecommendation,
 } from './stockAnalysis.type';
+import { mapClusterToType } from 'src/utils/map-cluster-enumType';
 
 @Injectable()
 export class StockRecommendationService {
@@ -22,6 +24,11 @@ export class StockRecommendationService {
     cluster?: string;
     sortBy?: string;
     order?: 'asc' | 'desc';
+    minDy?: number; // ปันผลขั้นต่ำ (%)
+    minScore?: number; // คะแนนขั้นต่ำ
+    month?: number; // เดือนที่จ่ายปันผล (1-12)
+    startDate?: string; // ช่วงวันที่เริ่มต้น
+    endDate?: string; // ช่วงวันที่สิ้นสุด
   }) {
     // 1. ตั้งค่าพื้นฐานสำหรับ Pagination
     const page = Number(query.page) || 1;
@@ -58,10 +65,12 @@ export class StockRecommendationService {
           const latestDividend = dbData.dividends?.[0];
           const latestPred = dbData.predictions?.[0];
 
+          const clusterType = mapClusterToType(item.Cluster_Name);
+
           return {
             symbol: item.Stock,
             stockSector: stockSector,
-            clusterName: item.Cluster_Name,
+            clusterName: clusterType,
             clusterId: item.Cluster,
             totalScore: item['Total_Score (%)'],
             dyPercent: item['DY (%)'],
@@ -101,7 +110,53 @@ export class StockRecommendationService {
       result = result.filter((item) => item.stockSector === query.sector);
     }
     if (query.cluster) {
-      result = result.filter((item) => item.clusterName === query.cluster);
+      const mlSearchText =
+        ClusterTypeML[query.cluster as keyof typeof ClusterTypeML];
+      if (mlSearchText) {
+        result = result.filter((item) => item.clusterName === query.cluster);
+      }
+    }
+
+    // 3.1 กรองค่าตัวเลขขั้นต่ำ (Numeric Filters)
+    if (query.minDy) {
+      result = result.filter(
+        (item) => (item.dyPercent ?? 0) >= Number(query.minDy),
+      );
+    }
+    if (query.minScore) {
+      result = result.filter(
+        (item) => (item.totalScore ?? 0) >= Number(query.minScore),
+      );
+    }
+
+    // 3.2 กรองช่วงวันที่ปันผล (Date Range Filters)
+    // กรองตามเดือน (เช่น อยากดูหุ้นที่ปันผลเดือนเมษายน)
+    if (query.month) {
+      result = result.filter((item) => {
+        // ตรวจสอบทั้งวันที่ XD จริง และวันที่คาดการณ์
+        const targetDate = item.dividendExDate || item.predictExDate;
+        if (!targetDate) return false;
+        const dateObj = new Date(targetDate);
+        return dateObj.getMonth() + 1 === Number(query.month);
+      });
+    }
+
+    // กรองตามช่วงวันที่เจาะจง
+    if (query.startDate || query.endDate) {
+      result = result.filter((item) => {
+        const targetDate = item.dividendExDate || item.predictExDate;
+        if (!targetDate) return false;
+
+        const dateObj = new Date(targetDate).getTime();
+        const start = query.startDate
+          ? new Date(query.startDate).getTime()
+          : -Infinity;
+        const end = query.endDate
+          ? new Date(query.endDate).getTime()
+          : Infinity;
+
+        return dateObj >= start && dateObj <= end;
+      });
     }
 
     // 4. Sorting Logic
