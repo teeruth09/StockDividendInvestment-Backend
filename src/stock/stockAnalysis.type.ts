@@ -71,3 +71,20 @@ export interface StockRecommendation {
   retBfTema: number;
   retAfTema: number;
 }
+
+export enum ClusterType {
+  DIVIDEND_TRAP = 'DIVIDEND_TRAP',
+  GOLDEN_GOOSE = 'GOLDEN_GOOSE',
+  NEUTRAL = 'NEUTRAL',
+  REBOUND_STAR = 'REBOUND_STAR',
+  UNKNOWN = 'UNKNOWN',
+}
+
+//map from type to text to ML
+export enum ClusterTypeML {
+  DIVIDEND_TRAP = 'Dividend Trap (Avoid)',
+  GOLDEN_GOOSE = 'Golden Goose (Strong Trend)',
+  NEUTRAL = 'Sell on Fact (Neutral)',
+  REBOUND_STAR = 'Rebound Star (Buy on Dip)',
+  UNKNOWN = 'UNKNOWN',
+}

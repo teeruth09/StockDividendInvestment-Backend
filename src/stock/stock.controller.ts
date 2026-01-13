@@ -338,6 +338,11 @@ export class StockController {
     @Query('cluster') cluster?: string,
     @Query('sortBy') sortBy: string = 'totalScore', //default
     @Query('order') order: 'asc' | 'desc' = 'desc',
+    @Query('minDy') minDy?: number,
+    @Query('minScore') minScore?: number,
+    @Query('month') month?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.recommendService.getRankedRecommendations({
       page,
@@ -347,6 +352,11 @@ export class StockController {
       cluster,
       sortBy,
       order,
+      minDy,
+      minScore,
+      month,
+      startDate,
+      endDate,
     });
   }
 }
