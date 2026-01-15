@@ -12,6 +12,7 @@ import {
   CreateStockDto,
   HistoricalPrice,
   Stock,
+  StockListResponse,
   UpdateStockDto,
   YF_SYMBOL_MAP,
 } from './stock.model';
@@ -24,6 +25,7 @@ import {
   splitRange,
 } from 'src/utils/time-normalize';
 import { DividendService } from 'src/dividend/dividend.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class StockService {
@@ -37,38 +39,122 @@ export class StockService {
   ) {}
 
   // ดึงหุ้นทั้งหมด (optionally filter by sector)
-  async getAllStocks(sector?: string): Promise<Stock[]> {
+  async getAllStocks(query: {
+    search?: string;
+    sector?: string;
+    sortBy?: string;
+    order?: 'asc' | 'desc';
+    month?: number; // เดือนที่จ่ายปันผล (1-12)
+    startDate?: string; // ช่วงวันที่เริ่มต้น
+    endDate?: string; // ช่วงวันที่สิ้นสุด
+  }): Promise<StockListResponse[]> {
+    const { search, sector, month, startDate, endDate, sortBy, order } = query;
+
+    const whereClause: Prisma.StockWhereInput = {};
+
+    const sortField = sortBy || 'stock_symbol';
+    const sortOrder = order || 'asc';
+
+    if (search) {
+      whereClause.stock_symbol = { contains: search.toUpperCase() };
+    }
+    if (sector) {
+      whereClause.sector = sector;
+    }
+    if (startDate || endDate) {
+      whereClause.dividends = {
+        some: {
+          ex_dividend_date: {
+            gte: startDate ? new Date(startDate) : undefined,
+            lte: endDate ? new Date(endDate) : undefined,
+          },
+        },
+      };
+    }
+
     const stocks = await this.prisma.stock.findMany({
-      where: sector ? { sector } : undefined,
-      orderBy: { stock_symbol: 'asc' },
+      where: whereClause,
+      // orderBy: {
+      //   [sortField]: sortOrder,
+      // },
       include: {
         historicalPrices: { take: 1, orderBy: { price_date: 'desc' } },
         dividends: { take: 1, orderBy: { announcement_date: 'desc' } },
-        predictions: { take: 1, orderBy: { prediction_date: 'desc' } },
+        //predictions: { take: 1, orderBy: { prediction_date: 'desc' } },
       },
     });
 
-    // แปลง BigInt → number
-    return stocks.map((stock) => ({
-      ...stock,
-      historicalPrices: stock.historicalPrices?.map((p) => ({
-        ...p,
-        price_change: p.price_change ?? 0,
-        percent_change: p.percent_change ?? 0,
-        volume_shares: Number(p.volume_shares),
-        volume_value: Number(p.volume_value),
-      })),
-      dividends: stock.dividends?.map((d) => ({
-        ...d,
-        source_of_dividend: d.source_of_dividend ?? '', // แปลง null → empty string
-      })),
-      predictions: stock.predictions?.map((p) => ({
-        ...p,
-        predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
-        confidence_score: p.confidence_score ?? 0,
-        prediction_horizon_days: p.prediction_horizon_days ?? 0,
-      })),
-    }));
+    const enrichedData = stocks.map((stock) => {
+      const price = stock.historicalPrices?.[0];
+      const div = stock.dividends?.[0];
+      return {
+        stockSymbol: stock.stock_symbol,
+        stockSector: stock.sector,
+        latestOpenPrice: price?.open_price ?? 0,
+        latestHighPrice: price?.high_price ?? 0,
+        latestLowPrice: price?.low_price ?? 0,
+        latestClosePrice: price?.close_price ?? 0,
+        latestPriceChange: price?.price_change ?? 0,
+        latestPercentChange: price?.percent_change ?? 0,
+        dividendExDate: div?.ex_dividend_date || null,
+        dividendDps: div?.dividend_per_share ?? 0,
+      };
+    });
+
+    let result = enrichedData;
+    if (month) {
+      result = result.filter(
+        (item) =>
+          item.dividendExDate &&
+          new Date(item.dividendExDate).getMonth() + 1 === Number(month),
+      );
+    }
+
+    result.sort((a: any, b: any) => {
+      const valA = a[sortField] ?? 0;
+      const valB = b[sortField] ?? 0;
+      return sortOrder === 'asc'
+        ? valA > valB
+          ? 1
+          : -1
+        : valA < valB
+          ? 1
+          : -1;
+    });
+
+    return result;
+
+    // let result = stocks;
+    // if (month) {
+    //   result = stocks.filter((stock) => {
+    //     const latestDiv = stock.dividends[0];
+    //     if (!latestDiv) return false;
+    //     return (
+    //       new Date(latestDiv.ex_dividend_date).getMonth() + 1 === Number(month)
+    //     );
+    //   });
+    // }
+
+    // return result.map((stock) => ({
+    //   ...stock,
+    //   historicalPrices: stock.historicalPrices?.map((p) => ({
+    //     ...p,
+    //     price_change: p.price_change ?? 0,
+    //     percent_change: p.percent_change ?? 0,
+    //     volume_shares: Number(p.volume_shares),
+    //     volume_value: Number(p.volume_value),
+    //   })),
+    //   dividends: stock.dividends?.map((d) => ({
+    //     ...d,
+    //     source_of_dividend: d.source_of_dividend ?? '', // แปลง null → empty string
+    //   })),
+    //   predictions: stock.predictions?.map((p) => ({
+    //     ...p,
+    //     predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
+    //     confidence_score: p.confidence_score ?? 0,
+    //     prediction_horizon_days: p.prediction_horizon_days ?? 0,
+    //   })),
+    // }));
   }
 
   // ดึงรายละเอียดหุ้น 1 ตัว

@@ -14,7 +14,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { StockService } from './stock.service';
-import { CreateStockDto, Stock, UpdateStockDto } from './stock.model';
+import { CreateStockDto, Stock, StockListResponse, UpdateStockDto } from './stock.model';
 import { StockSyncService } from './stock.sync.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AdminGuard } from 'src/auth/admin.guard';
@@ -31,8 +31,24 @@ export class StockController {
 
   // 1. รายการหุ้นทั้งหมด
   @Get('stocks')
-  async getAllStocks(@Query('sector') sector?: string): Promise<Stock[]> {
-    const stocks = await this.stockService.getAllStocks(sector);
+  async getAllStocks(
+    @Query('search') search?: string,
+    @Query('sector') sector?: string,
+    @Query('sortBy') sortBy: string = 'stock_symbol',
+    @Query('order') order: 'asc' | 'desc' = 'asc',
+    @Query('month') month?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ): Promise<StockListResponse[]> {
+    const stocks = await this.stockService.getAllStocks({
+      search,
+      sector,
+      sortBy,
+      order,
+      month,
+      startDate,
+      endDate,
+    });
     return this.serializeBigInt(stocks);
   }
 

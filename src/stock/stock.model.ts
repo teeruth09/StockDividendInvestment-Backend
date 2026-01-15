@@ -115,3 +115,16 @@ export class HistoricalPrice {
   volume_shares: number;
   volume_value: number;
 }
+
+export interface StockListResponse {
+  stockSymbol: string;
+  stockSector: string;
+  latestOpenPrice: number;
+  latestHighPrice: number;
+  latestLowPrice: number;
+  latestClosePrice: number;
+  latestPriceChange: number;
+  latestPercentChange: number;
+  dividendExDate: Date | null;
+  dividendDps: number;
+}
