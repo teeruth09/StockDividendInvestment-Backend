@@ -130,84 +130,132 @@ export class TaxService {
     const incomeType1And2 =
       (dto.salary || 0) + (dto.bonus || 0) + (dto.otherIncome || 0);
 
-    // Step 1: หักค่าใช้จ่าย (Expenses)
-    // รวมม.40(1)+(2) แล้วหัก 50% แต่ไม่เกิน 100,000 บาท
-    const totalExpenses = Math.min(incomeType1And2 * 0.5, 100000);
+    const hasDividend = totalGrossDividend > 0;
 
-    // Step 2: คำนวณรายได้หลังหักค่าใช้จ่าย (ก่อนหักลดหย่อน)
+    // --- ส่วนการคำนวณเปรียบเทียบ ---
+
+    // 1. คำนวณแบบรวมเครดิต
+    const withCredit = this.executeTaxLogic(
+      dto,
+      incomeType1And2,
+      totalGrossDividend,
+      totalTaxCredit,
+      withholdingTax10,
+      true,
+    );
+
+    // 2. คำนวณแบบไม่รวมเครดิต (Final Tax)
+    const withoutCredit = this.executeTaxLogic(
+      dto,
+      incomeType1And2,
+      totalGrossDividend,
+      totalTaxCredit,
+      withholdingTax10,
+      false,
+    );
+
+    // --- วิเคราะห์ทางเลือกที่ดีที่สุด ---
+    const bestChoice =
+      withCredit.taxFinal - withCredit.refundAmount <
+      withoutCredit.taxFinal - withoutCredit.refundAmount
+        ? 'WITH_CREDIT'
+        : 'FINAL_TAX';
+    const diff = Math.abs(
+      withCredit.taxFinal -
+        withCredit.refundAmount -
+        (withoutCredit.taxFinal - withoutCredit.refundAmount),
+    );
+
+    return {
+      hasDividend,
+      bestChoice: hasDividend ? bestChoice : 'NONE',
+      savings: hasDividend ? diff : 0,
+      // ถ้าไม่มีปันผล ส่งแค่ฝั่งเดียวก็พอเพื่อไม่ให้ UI รก
+      result: hasDividend
+        ? { withCredit, withoutCredit }
+        : { standard: withoutCredit },
+      summary: {
+        totalGrossDividend,
+        totalTaxCredit,
+        withholdingTax10,
+      },
+    };
+  }
+
+  private executeTaxLogic(
+    dto: CalculateTaxDto,
+    incomeType1And2: number,
+    totalGrossDividend: number,
+    totalTaxCredit: number,
+    withholdingTax10: number,
+    includeDividendCredit: boolean,
+  ) {
+    // Step 1: หักค่าใช้จ่าย (Expenses)
+    const totalExpenses = Math.min(incomeType1And2 * 0.5, 100000);
     const incomeAfterExpenses = incomeType1And2 - totalExpenses;
 
-    const totalIncome = dto.includeDividendCredit
+    // Step 2: รวมรายได้ตามเงื่อนไข
+    const totalIncome = includeDividendCredit
       ? incomeAfterExpenses + totalGrossDividend
       : incomeAfterExpenses;
-    // รายละเอียดค่าลดหย่อน
+
+    // Step 3: หักลดหย่อน
     const { deductionDetails, totalDeductions } = this.normalizeDeductions(
       dto,
       totalIncome,
     );
-
     const netIncome = Math.max(0, totalIncome - totalDeductions);
 
-    // 3. คำนวณแบบแยกขั้นบันได (แบบสะสมรวม)
+    // Step 4: คำนวณภาษีขั้นบันได
     let remainingNetIncome = netIncome;
-    let totalTaxBeforeCredit = 0;
-
+    let taxBeforeCredit = 0;
     const breakdown = this.TAX_BRACKETS.map((bracket) => {
       const range = Math.min(
         Math.max(0, remainingNetIncome),
         bracket.max - bracket.min,
       );
       const taxInBracket = range * bracket.rate;
-
       if (range > 0) remainingNetIncome -= range;
-      totalTaxBeforeCredit += taxInBracket;
-
+      taxBeforeCredit += taxInBracket;
       return {
-        bracket: `${bracket.min.toLocaleString()} - ${bracket.max === Infinity ? 'ขึ้นไป' : bracket.max.toLocaleString()}`,
+        bracket: `${bracket.min}-${bracket.max}`,
         rate: bracket.rate * 100,
         amount: range,
         tax: taxInBracket,
       };
-    }).filter((b) => b.amount > 0 || b.bracket.startsWith('0')); // กรองเอาเฉพาะชั้นที่มีเงินได้ถึง
+    }).filter((b) => b.amount > 0 || b.bracket.startsWith('0'));
 
-    // 4. สรุปยอดภาษีสุดท้าย (Final Calculation)
-    // ภาษีที่จ่ายไว้เกิน = (ภาษีที่คำนวณได้) - (เครดิตภาษีปันผล) - (ภาษีหัก ณ ที่จ่าย 10%)
-    let taxPayable = 0;
-    let finalTaxCreditUsed = 0;
-    let finalWithholdingUsed = 0;
+    // Step 5: สรุปยอดภาษีสุดท้าย
+    const finalTaxCreditUsed = includeDividendCredit ? totalTaxCredit : 0;
+    const finalWithholdingUsed = includeDividendCredit ? withholdingTax10 : 0;
+    const taxPayable =
+      taxBeforeCredit - finalTaxCreditUsed - finalWithholdingUsed;
 
-    if (dto.includeDividendCredit) {
-      // กรณีใช้เครดิต: นำทั้งเครดิตภาษีและ 10% ที่โดนหักไปมาลบออกจากภาษีที่คำนวณได้
-      finalTaxCreditUsed = totalTaxCredit;
-      finalWithholdingUsed = withholdingTax10;
-      taxPayable =
-        totalTaxBeforeCredit - finalTaxCreditUsed - finalWithholdingUsed;
-    } else {
-      // กรณีไม่ใช้เครดิต: ภาษีที่ต้องจ่ายคือตามขั้นบันไดของเงินเดือนเท่านั้น (ปันผลไม่เกี่ยวแล้ว)
-      taxPayable = totalTaxBeforeCredit;
-    }
+    // คำนวณภาษีสุทธิ (ถ้าจ่ายเพิ่มเป็นบวก ถ้าได้คืนเป็นลบ)
+    const netTaxAmount = taxPayable;
+    // สูตรคำนวณ Effective Tax Rate
+    // ภาษีจ่ายจริง (ไม่ติดลบ) หารด้วย รายได้รวมทั้งหมด
+    const effectiveRate =
+      totalIncome > 0 ? (Math.max(0, netTaxAmount) / totalIncome) * 100 : 0;
 
     return {
       incomeType1And2,
-      totalExpenses,
-      incomeAfterExpenses,
       totalGrossDividend,
       totalIncome,
-      totalDeductions,
+      totalExpenses, // เพิ่มกลับเข้าไปถ้าต้องการโชว์ใน UI
+      incomeAfterExpenses, // เพิ่มกลับเข้าไปถ้าต้องการโชว์ใน UI
       netIncome,
-      taxBeforeCredit: totalTaxBeforeCredit, // ภาษีที่คำนวณได้จากเงินได้สุทธิ
-      totalTaxCredit: finalTaxCreditUsed,
-      withholdingTax10: finalWithholdingUsed,
+      taxBeforeCredit,
+      totalTaxCredit,
+      withholdingTax10,
       taxFinal: taxPayable > 0 ? taxPayable : 0,
+      refundAmount: taxPayable < 0 ? Math.abs(taxPayable) : 0,
       isRefund: taxPayable < 0,
-      refundAmount: taxPayable < 0 ? Math.abs(taxPayable) : 0, // ภาษีที่ชำระไว้เกิน
-      effectiveRateBefore:
-        totalIncome > 0 ? (totalTaxBeforeCredit / totalIncome) * 100 : 0,
-      effectiveRateAfter:
-        totalIncome > 0 ? (Math.max(0, taxPayable) / totalIncome) * 100 : 0,
-      deductionDetails,
+      effectiveRate, // อัตราภาษีที่แท้จริงของ "กรณีนี้"
       breakdown,
-      includeDividendCredit: dto.includeDividendCredit, // คืนค่ากลับไปให้ UI ทราบสถานะ
+      deductionDetails,
+      totalDeductions,
+      includeDividendCredit,
     };
   }
 
