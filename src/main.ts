@@ -5,10 +5,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: 'http://localhost:8080', // หรือ ['http://localhost:8080'] ถ้ามีหลายที่
+    origin: [
+      'http://localhost:8080',
+      'http://localhost:3000',
+      'http://192.168.64.2:8080',
+      'http://192.168.64.2:3000',
+    ],
     credentials: true,
   });
 
-  await app.listen(3000);
+  await app.listen(3000, '0.0.0.0');
 }
 bootstrap();
