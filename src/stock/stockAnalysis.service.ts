@@ -237,7 +237,7 @@ export class StockAnalysisService {
         predictPrice: ggm.Pred_Price,
         diffPercent: ggm.Diff_Percent,
         meaning: ggm.Meaning,
-        dividensFlow: ggm.Dividends_Flow,
+        dividendsFlow: ggm.Dividends_Flow,
       };
     });
 
