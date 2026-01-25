@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { QuantClientService } from 'src/integration/quantClient/quantClient.service';
 import {
   AnalysisResponse,
+  GgmApiResponse,
   TdtsCleanData,
   TemaCleanData,
 } from './stockAnalysis.type';
@@ -40,6 +41,13 @@ interface UpdateIndicatorCache {
   start_year: number;
 }
 
+interface UpdateGgmCache {
+  tickers: string[];
+  years: number;
+  r_expected: number;
+  growth_rate: number;
+}
+
 @Injectable()
 export class StockAnalysisService {
   constructor(private readonly quantClient: QuantClientService) {}
@@ -56,7 +64,7 @@ export class StockAnalysisService {
     //[POST] Trigger Background Task to calculate Scores & Clusters for ALL SET50 stocks.
     const payload: ScoringCriteria = criteria ?? {
       start_year: 2022,
-      end_year: 2025,
+      end_year: 2026,
       window: 15,
       threshold: 20,
     };
@@ -194,5 +202,50 @@ export class StockAnalysisService {
     const endpoint = `/technical_history/${upperSymbol}`;
 
     return this.quantClient.get<string>(endpoint);
+  }
+
+  //Valuation (GGM) Dividend Discount Model Valuation
+  //[POST] Trigger Background Task to calculate GGM Valuation for ALL SET50 stocks.
+  async updateGgm(criteria: UpdateGgmCache) {
+    const payload: UpdateGgmCache = criteria ?? {
+      tickers: ['string'],
+      years: 3,
+      r_expected: 0.1,
+      growth_rate: 0.04,
+    };
+    return this.quantClient.post<string>('/update_ggm_cache', payload);
+  }
+  //[GET] GGM Result from Cache
+  async getValuationGgm(symbol: string) {
+    const upperSymbol = symbol.toUpperCase();
+
+    const endpoint = `/valuation_ggm/${upperSymbol}`;
+
+    const ggmRaw = await this.quantClient.get<string>(endpoint);
+
+    const ggmResult: GgmApiResponse =
+      typeof ggmRaw === 'string' ? JSON.parse(ggmRaw) : ggmRaw;
+
+    // ตรวจสอบว่าถ้า data เป็น Object ก้อนเดียว ให้หุ้มด้วย [ ] เพื่อให้เป็น Array
+    const rawData = ggmResult.data;
+    const ggmList = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+
+    const mapData = ggmList.map((ggm) => {
+      return {
+        symbol: ggm.Symbol.split('.')[0],
+        currentPrice: ggm.Current_Price,
+        predictPrice: ggm.Pred_Price,
+        diffPercent: ggm.Diff_Percent,
+        meaning: ggm.Meaning,
+        dividensFlow: ggm.Dividends_Flow,
+      };
+    });
+
+    return {
+      status: ggmResult.status,
+      source: ggmResult.source,
+      count: ggmResult.count,
+      data: mapData,
+    };
   }
 }
