@@ -88,3 +88,24 @@ export enum ClusterTypeML {
   REBOUND_STAR = 'Rebound Star (Buy on Dip)',
   UNKNOWN = 'UNKNOWN',
 }
+
+export interface DividendFlow {
+  D1: number;
+  D2: number;
+  D3: number;
+}
+export interface GgmValuationRaw {
+  Symbol: string;
+  Current_Price: number;
+  Pred_Price: number;
+  Diff_Percent: number;
+  Meaning: string;
+  Dividends_Flow: DividendFlow;
+}
+
+export interface GgmApiResponse {
+  status: string;
+  source: string;
+  count: number;
+  data: GgmValuationRaw[];
+}

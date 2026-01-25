@@ -34,6 +34,15 @@ export class StockAnalysisSyncService implements OnModuleInit {
         threshold: 20,
       });
 
+      // ขั้นตอนที่ 3: อัปเดต GGM
+      this.logger.log('⏳ Updating GGM Cache...');
+      await this.stockAnalysisService.updateGgm({
+        tickers: ['string'],
+        years: 3,
+        r_expected: 0.1,
+        growth_rate: 0.04,
+      });
+
       this.logger.log('✅ Analysis Cache Update Finished Successfully.');
     } catch (error) {
       this.logger.error(`❌ Analysis Update Failed: ${error.message}`);

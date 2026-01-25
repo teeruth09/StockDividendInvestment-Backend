@@ -252,7 +252,14 @@ export class StockController {
     6.update indicator cache เป็นการ update กราฟเทคนิค
     7.techincal history เป็นการ get ค่าผลตอบแทน 1 ปีย้อนหลัง
     8.recommended stock
+    9.update ggm cahce เป็นการ update Dividend Discount Model
+    10.valuation ggm เป็นการ get ผลลัพธ์ Ggm Result 3 ปี
   */
+
+  /*
+    Scoring(tdts+tema) & Clustering Batch Analysis and Portfolio Clustering
+  */
+
   @Get('recommendation/:symbol')
   async getRecommendation(@Param('symbol') symbol: string) {
     const data = await this.analysisService.getStockRecommendation(symbol);
@@ -275,6 +282,10 @@ export class StockController {
   ) {
     return this.analysisService.updateScoring(body);
   }
+
+  /*
+    Individual Metrics(T-DTS & TEMA)Analyze specific stocks metrics
+  */
 
   //Result มาจาก cache ดังนั้นรอบถัดไปไม่ต้องส่ง year ไปก็ได้
   @Get('analyze-tdts/:symbol')
@@ -328,6 +339,9 @@ export class StockController {
     });
   }
 
+  /*
+    Technical Analysis (macd+rsi)
+  */
   @Post('update-indicator-cache')
   async postUpdateIndicator(
     @Body()
@@ -374,5 +388,27 @@ export class StockController {
       startDate,
       endDate,
     });
+  }
+
+  /*
+    Valuation (GGM) Dividend Discount Model Valuation
+  */
+  @Post('update-ggm-cache')
+  async postUpdateGgm(
+    @Body()
+    body: {
+      tickers: string[];
+      years: number;
+      r_expected: number;
+      growth_rate: number;
+    },
+  ) {
+    return this.analysisService.updateGgm(body);
+  }
+
+  //Result มาจาก cache
+  @Get('valuation-ggm/:symbol')
+  async getValuationGgm(@Param('symbol') symbol: string) {
+    return this.analysisService.getValuationGgm(symbol);
   }
 }
