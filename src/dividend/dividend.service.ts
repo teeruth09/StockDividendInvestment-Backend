@@ -269,8 +269,12 @@ export class DividendService {
         }
       }
       return newlyCreatedDividends; // ส่งคืนเฉพาะรายการที่สร้างใหม่
-    } catch (error) {
-      console.error(`Failed to sync dividends for ${symbol}:`, error.message);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(`Failed to sync dividends for ${symbol}:`, error.message);
+      } else {
+        console.error(`Failed to sync dividends for ${symbol}:`, String(error));
+      }
       throw new BadRequestException(`Failed to sync dividends for ${symbol}`);
     }
   }
@@ -348,7 +352,6 @@ export class DividendService {
         name: curr.stock?.name,
         type: 'XD-PREDICT', // ข้อมูลคาดการณ์
         ex_dividend_date: curr.predicted_ex_dividend_date,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         record_date: curr.predicted_record_date,
         payment_date: curr.predicted_payment_date,
         dividend_per_share: curr.predicted_dividend_per_share,
@@ -357,7 +360,6 @@ export class DividendService {
     });
 
     // แปลงจาก Object เป็น Array เพื่อให้ Frontend วนลูปง่าย
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return Object.values(grouped);
   }
 

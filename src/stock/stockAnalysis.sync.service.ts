@@ -45,7 +45,9 @@ export class StockAnalysisSyncService implements OnModuleInit {
 
       this.logger.log('✅ Analysis Cache Update Finished Successfully.');
     } catch (error) {
-      this.logger.error(`❌ Analysis Update Failed: ${error.message}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`❌ Analysis Update Failed: ${errorMessage}`);
     } finally {
       this.isAnalyzing = false;
     }

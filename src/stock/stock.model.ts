@@ -112,8 +112,8 @@ export class HistoricalPrice {
   close_price: number;
   price_change?: number | null;
   percent_change?: number | null;
-  volume_shares: number;
-  volume_value: number;
+  volume_shares: bigint; // เปลี่ยนจาก number เป็น bigint
+  volume_value: bigint; // เปลี่ยนจาก number เป็น bigint
 }
 
 export interface StockListResponse {

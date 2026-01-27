@@ -18,8 +18,10 @@ export class QuantClientService {
       );
       return response;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Error calling Python GET API (${endpoint}): ${error.message}`,
+        `Error calling Python GET API (${endpoint}): ${errorMessage}`,
       );
       throw error;
     }
@@ -32,8 +34,10 @@ export class QuantClientService {
       );
       return response;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Error calling Python API (${endpoint}): ${error.message}`,
+        `Error calling Python API (${endpoint}): ${errorMessage}`,
       );
       throw error;
     }

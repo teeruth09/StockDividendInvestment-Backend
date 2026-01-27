@@ -55,7 +55,7 @@ export class PortfolioController {
    * ดึงรายการปันผลที่ได้รับแล้วทั้งหมด
    */
   @Get(':userId/received-dividends')
-  async getReceivedDividends(@Param('userId') userId: string): Promise<any> {
+  getReceivedDividends(@Param('userId') userId: string): any {
     // 💡 เมธอดนี้ควรถูก implement ใน PortfolioService (หรือเรียก DividendService)
     // ตัวอย่าง: return this.dividendService.getReceivedDividendsByUser(userId);
     return {

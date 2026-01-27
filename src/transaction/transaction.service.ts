@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from './../prisma.service';
 import { StockService } from './../stock/stock.service';
-import { Prisma, Portfolio } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   Transaction,
   TransactionFilters,
