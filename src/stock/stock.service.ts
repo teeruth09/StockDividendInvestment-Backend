@@ -38,6 +38,13 @@ export class StockService {
     private readonly dividendService: DividendService,
   ) {}
 
+  private serializeBigInt<T>(obj: T): T {
+    return JSON.parse(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    ) as T;
+  }
+
   // ดึงหุ้นทั้งหมด (optionally filter by sector)
   async getAllStocks(query: {
     search?: string;
@@ -110,9 +117,12 @@ export class StockService {
       );
     }
 
-    result.sort((a: any, b: any) => {
-      const valA = a[sortField] ?? 0;
-      const valB = b[sortField] ?? 0;
+    result.sort((a: StockListResponse, b: StockListResponse) => {
+      // ใช้ keyof เพื่อให้มั่นใจว่าเราเข้าถึง Property ที่มีอยู่จริง
+      const field = sortField as keyof StockListResponse;
+
+      const valA = a[field] ?? 0;
+      const valB = b[field] ?? 0;
       return sortOrder === 'asc'
         ? valA > valB
           ? 1
@@ -209,13 +219,15 @@ export class StockService {
     // แปลง BigInt → number และ handle null
     return {
       ...stock,
-      historicalPrices: stock.historicalPrices?.map((p) => ({
-        ...p,
-        price_change: p.price_change ?? 0,
-        percent_change: p.percent_change ?? 0,
-        volume_shares: Number(p.volume_shares),
-        volume_value: Number(p.volume_value),
-      })),
+      historicalPrices: stock.historicalPrices?.map(
+        (p): HistoricalPrice => ({
+          ...p,
+          price_change: p.price_change ?? 0,
+          percent_change: p.percent_change ?? 0,
+          volume_shares: BigInt(p.volume_shares),
+          volume_value: BigInt(p.volume_value),
+        }),
+      ),
       dividends: stock.dividends?.map((d) => ({
         ...d,
         source_of_dividend: d.source_of_dividend ?? '',
@@ -253,7 +265,7 @@ export class StockService {
     endDate.setUTCHours(23, 59, 59, 999); // 2025-08-04 23:59:59.999Z
 
     // 3. เรียกใช้ฟังก์ชันดึงราคาย้อนหลังที่ครอบคลุมการดึงจาก Yahoo ด้วย
-    const prices: any[] = await this.getHistoricalPrices(
+    const prices: HistoricalPrice[] = await this.getHistoricalPrices(
       symbol,
       startDate,
       endDate,
@@ -306,7 +318,7 @@ export class StockService {
     const holidayDates = new Set(holidays.map((h) => h.holiday_date.getTime()));
 
     // 2️⃣ หาเฉพาะช่วงที่ขาด
-    let missingRanges = findMissingRanges(
+    const missingRanges = findMissingRanges(
       startDate,
       endDate,
       dbDates,
@@ -322,14 +334,10 @@ export class StockService {
       const sortedDb = dbPrices.sort(
         (a, b) => b.price_date.getTime() - a.price_date.getTime(),
       );
-      return JSON.parse(
-        JSON.stringify(sortedDb, (_, v) =>
-          typeof v === 'bigint' ? v.toString() : v,
-        ),
-      );
+      return this.serializeBigInt<HistoricalPrice[]>(sortedDb);
     }
 
-    const yfDataMapped: any[] = [];
+    const yfDataMapped: HistoricalPrice[] = [];
 
     // 3️⃣ lastClose เอาจาก DB (วันล่าสุด)
     let lastClose =
@@ -346,6 +354,7 @@ export class StockService {
         // ถ้าเป็นวันเดียวกัน ให้ข้าม หรือขยายช่วง
         if (fromTime > toTime) {
           this.logger.debug(
+            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
             `Skipping invalid range: ${chunk.from} to ${chunk.to}`,
           );
           continue;
@@ -365,6 +374,7 @@ export class StockService {
               period1: p1,
               period2: p2,
             },
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
             {
               fetchOptions: {
                 headers: {
@@ -472,7 +482,10 @@ export class StockService {
             }
           }
         } catch (err) {
-          if (err.message?.includes('Too Many Requests')) {
+          if (
+            err instanceof Error &&
+            err.message?.includes('Too Many Requests')
+          ) {
             this.logger.warn(`Yahoo rate limited for ${symbol}, stop fetching`);
             break;
           }
@@ -482,10 +495,13 @@ export class StockService {
     }
 
     // 5️⃣ merge DB + Yahoo (กันข้อมูลซ้ำ)
-    const uniqueMap = new Map<number, any>();
+    const uniqueMap = new Map<number, HistoricalPrice>();
 
     dbPrices.forEach((p) => {
-      uniqueMap.set(normalizeDate(p.price_date).getTime(), p);
+      uniqueMap.set(
+        normalizeDate(p.price_date).getTime(),
+        p as HistoricalPrice,
+      );
     });
 
     yfDataMapped.forEach((p) => {
@@ -496,12 +512,7 @@ export class StockService {
       (a, b) => b.price_date.getTime() - a.price_date.getTime(),
     );
 
-    // 6️⃣ serialize BigInt
-    return JSON.parse(
-      JSON.stringify(sorted, (_, v) =>
-        typeof v === 'bigint' ? v.toString() : v,
-      ),
-    );
+    return this.serializeBigInt<HistoricalPrice[]>(sorted);
   }
 
   /**

@@ -146,10 +146,12 @@ export class StockAnalysisService {
       }),
     ]);
     // 2. Parse JSON และระบุ Type
-    const tdtsResult: AnalysisResponse<TdtsCleanData> =
-      typeof tdtsRaw === 'string' ? JSON.parse(tdtsRaw) : tdtsRaw;
-    const temaResult: AnalysisResponse<TemaCleanData> =
-      typeof temaRaw === 'string' ? JSON.parse(temaRaw) : temaRaw;
+    const tdtsResult = (
+      typeof tdtsRaw === 'string' ? JSON.parse(tdtsRaw) : tdtsRaw
+    ) as AnalysisResponse<TdtsCleanData>;
+    const temaResult = (
+      typeof temaRaw === 'string' ? JSON.parse(temaRaw) : temaRaw
+    ) as AnalysisResponse<TemaCleanData>;
 
     const tdtsList = tdtsResult.data?.clean_data || [];
     const temaList = temaResult.data?.clean_data || [];
@@ -223,8 +225,9 @@ export class StockAnalysisService {
 
     const ggmRaw = await this.quantClient.get<string>(endpoint);
 
-    const ggmResult: GgmApiResponse =
-      typeof ggmRaw === 'string' ? JSON.parse(ggmRaw) : ggmRaw;
+    const ggmResult = (
+      typeof ggmRaw === 'string' ? JSON.parse(ggmRaw) : ggmRaw
+    ) as GgmApiResponse;
 
     // ตรวจสอบว่าถ้า data เป็น Object ก้อนเดียว ให้หุ้มด้วย [ ] เพื่อให้เป็น Array
     const rawData = ggmResult.data;

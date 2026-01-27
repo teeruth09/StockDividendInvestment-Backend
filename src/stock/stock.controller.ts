@@ -11,10 +11,14 @@ import {
   Body,
   BadRequestException,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
 import { StockService } from './stock.service';
-import { CreateStockDto, Stock, StockListResponse, UpdateStockDto } from './stock.model';
+import {
+  CreateStockDto,
+  Stock,
+  StockListResponse,
+  UpdateStockDto,
+} from './stock.model';
 import { StockSyncService } from './stock.sync.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AdminGuard } from 'src/auth/admin.guard';
@@ -159,12 +163,13 @@ export class StockController {
     return { startDate, endDate };
   }
 
-  private serializeBigInt(obj: any) {
+  private serializeBigInt<T>(obj: T): T {
     return JSON.parse(
       JSON.stringify(obj, (_, value) =>
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
         typeof value === 'bigint' ? value.toString() : value,
       ),
-    );
+    ) as T;
   }
 
   // 4. เพิ่มหุ้นใหม่

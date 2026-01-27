@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Inject,
-  forwardRef,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import {
   Portfolio as PortfolioModel,
@@ -302,7 +296,7 @@ export class PortfolioService {
       prices.forEach((priceRecord) => {
         const priceDateObject = new Date(priceRecord.price_date);
         const dateString = priceDateObject.toISOString().split('T')[0];
-        console.log(dateString);
+        //console.log(dateString);
         datePriceMap[dateString] = priceRecord.close_price;
       });
 
@@ -423,7 +417,9 @@ export class PortfolioService {
     const allStockData = await Promise.all(stockDataPromises);
 
     // 1d. จัดโครงสร้างข้อมูล Sector ให้เป็น Map เพื่อความง่ายในการเข้าถึง (Symbol -> Data Object)
-    const stockInfoMap: Record<string, any> = {};
+    type StockData = Awaited<ReturnType<typeof this.stockService.getStockData>>;
+
+    const stockInfoMap: Record<string, StockData> = {};
     allStockData.forEach((data, index) => {
       const symbol = symbols[index];
       stockInfoMap[symbol] = data;

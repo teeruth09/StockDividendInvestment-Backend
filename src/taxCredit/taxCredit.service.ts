@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TaxCredit } from './taxCredt.model';
-import { DividendReceived } from '../dividend/dividend.model';
 import { Stock } from '../stock/stock.model';
 
 @Injectable()
