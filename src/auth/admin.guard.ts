@@ -5,11 +5,21 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 
+interface AuthenticatedUser {
+  email: string;
+  sub?: string;
+  username?: string;
+}
+
+interface RequestWithUser extends Request {
+  user?: AuthenticatedUser;
+}
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest();
-    const user = request.user; // ข้อมูลที่ได้จาก JwtGuard ก่อนหน้า
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
+
+    const user = request.user;
 
     const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
 

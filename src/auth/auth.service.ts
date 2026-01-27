@@ -24,7 +24,10 @@ export class AuthService {
     private prisma: PrismaService,
   ) {}
 
-  async validateUser(username: string, password: string): Promise<ValidatedUser | null> {
+  async validateUser(
+    username: string,
+    password: string,
+  ): Promise<ValidatedUser | null> {
     const user = await this.userService.getUser(username);
     if (user && (await bcrypt.compare(password, user.password))) {
       // const { password, ...result } = user;
@@ -77,8 +80,14 @@ export class AuthService {
         error.code === 'P2002'
       ) {
         // ตรวจสอบว่าเกิดจาก email หรือ username
-        const target = error.meta?.target?.[0];
-        throw new ConflictException(`${target} already exists`);
+        // 1. ดึง target ออกมาและเช็คว่าเป็น Array ของ string หรือไม่
+        const target = error.meta?.target;
+        // 2. ใช้ Array.isArray และเช็คความยาวเพื่อให้มั่นใจก่อนใช้งาน
+        if (Array.isArray(target) && target.length > 0) {
+          const fieldName = String(target[0]); // ระบุว่าเป็น string ชัดเจน
+          throw new ConflictException(`${fieldName} already exists`);
+        }
+        throw new ConflictException(`This target is already exists`);
       }
       throw error;
     }
