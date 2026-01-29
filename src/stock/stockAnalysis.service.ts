@@ -1,12 +1,20 @@
-import { Injectable } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+import { StockAnalysisSyncService } from './stockAnalysis.sync.service';
+import {
+  ConflictException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { QuantClientService } from 'src/integration/quantClient/quantClient.service';
 import {
   AnalysisResponse,
   GgmApiResponse,
+  HealthCheckResponse,
   TdtsCleanData,
   TemaCleanData,
 } from './stockAnalysis.type';
-
 interface ScoringCriteria {
   start_year: number;
   end_year: number;
@@ -50,14 +58,37 @@ interface UpdateGgmCache {
 
 @Injectable()
 export class StockAnalysisService {
-  constructor(private readonly quantClient: QuantClientService) {}
+  private readonly logger = new Logger(StockAnalysisService.name);
+  constructor(
+    private readonly quantClient: QuantClientService,
+    @Inject(forwardRef(() => StockAnalysisSyncService))
+    private readonly syncService: StockAnalysisSyncService,
+  ) {}
+
+  async getHealthCheck() {
+    const endpoint = `/`;
+    return await this.quantClient.get<HealthCheckResponse>(endpoint);
+  }
 
   async getStockRecommendation(symbol: string) {
     const upperSymbol = symbol.toUpperCase();
 
-    const endpoint = `/stock_recommendation/${upperSymbol}`;
+    const endpoint = `/main_app/stock_recommendation/${upperSymbol}`;
 
-    return this.quantClient.get<string>(endpoint);
+    try {
+      return await this.quantClient.get<string>(endpoint);
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        this.syncService.handleAnalysisUpdate().catch(() => {});
+
+        throw new ConflictException({
+          message:
+            'ระบบตรวจพบว่าข้อมูลยังไม่พร้อม กำลังเริ่มการคำนวณใหม่ กรุณารอประมาณ 1-2 นาที',
+          status: 'PROCESSING',
+        });
+      }
+      throw error;
+    }
   }
 
   async updateScoring(criteria: ScoringCriteria) {
@@ -68,9 +99,10 @@ export class StockAnalysisService {
       window: 15,
       threshold: 20,
     };
-    console.log('payload', payload);
-
-    return this.quantClient.post<string>('/update_scoring_cache', payload);
+    return this.quantClient.post<string>(
+      '/main_app/update_scoring_cache',
+      payload,
+    );
   }
 
   //get analyze tdts
@@ -84,18 +116,29 @@ export class StockAnalysisService {
 
     const upperSymbol = payload.symbol.toUpperCase();
 
-    console.log('payload', payload);
+    const endpoint = `/main_app/analyze_tdts/${upperSymbol}`;
 
-    const endpoint = `/analyze_tdts/${upperSymbol}`;
+    try {
+      return this.quantClient.get<string>(endpoint, {
+        params: {
+          symbol,
+          start_year,
+          end_year,
+          threshold,
+        },
+      });
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        this.syncService.handleAnalysisUpdate().catch(() => {});
 
-    return this.quantClient.get<string>(endpoint, {
-      params: {
-        symbol,
-        start_year,
-        end_year,
-        threshold,
-      },
-    });
+        throw new ConflictException({
+          message:
+            'ระบบตรวจพบว่าข้อมูลยังไม่พร้อม กำลังเริ่มการคำนวณใหม่ กรุณารอประมาณ 1-2 นาที',
+          status: 'PROCESSING',
+        });
+      }
+      throw error;
+    }
   }
 
   //get analyze TEMA
@@ -110,19 +153,29 @@ export class StockAnalysisService {
 
     const upperSymbol = payload.symbol.toUpperCase();
 
-    console.log('payload', payload);
+    const endpoint = `/main_app/analyze_tema/${upperSymbol}`;
+    try {
+      return this.quantClient.get<string>(endpoint, {
+        params: {
+          symbol,
+          start_year,
+          end_year,
+          threshold,
+          window,
+        },
+      });
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        this.syncService.handleAnalysisUpdate().catch(() => {});
 
-    const endpoint = `/analyze_tema/${upperSymbol}`;
-
-    return this.quantClient.get<string>(endpoint, {
-      params: {
-        symbol,
-        start_year,
-        end_year,
-        threshold,
-        window,
-      },
-    });
+        throw new ConflictException({
+          message:
+            'ระบบตรวจพบว่าข้อมูลยังไม่พร้อม กำลังเริ่มการคำนวณใหม่ กรุณารอประมาณ 1-2 นาที',
+          status: 'PROCESSING',
+        });
+      }
+      throw error;
+    }
   }
 
   //Combine TDTS and TEMA
@@ -192,8 +245,10 @@ export class StockAnalysisService {
     const payload: UpdateIndicatorCache = criteria ?? {
       start_year: 2022,
     };
-    console.log('startYear', payload);
-    return this.quantClient.post<string>('/update_indicator_cache', payload);
+    return this.quantClient.post<string>(
+      '/main_app/update_indicator_cache',
+      payload,
+    );
   }
 
   //get technical history
@@ -201,9 +256,21 @@ export class StockAnalysisService {
   async getTechnicalHistory(symbol: string) {
     const upperSymbol = symbol.toUpperCase();
 
-    const endpoint = `/technical_history/${upperSymbol}`;
+    const endpoint = `/main_app/technical_history/${upperSymbol}`;
+    try {
+      return await this.quantClient.get<string>(endpoint);
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        this.syncService.handleAnalysisUpdate().catch(() => {});
 
-    return this.quantClient.get<string>(endpoint);
+        throw new ConflictException({
+          message:
+            'ระบบตรวจพบว่าข้อมูลยังไม่พร้อม กำลังเริ่มการคำนวณใหม่ กรุณารอประมาณ 1-2 นาที',
+          status: 'PROCESSING',
+        });
+      }
+      throw error;
+    }
   }
 
   //Valuation (GGM) Dividend Discount Model Valuation
@@ -215,40 +282,56 @@ export class StockAnalysisService {
       r_expected: 0.1,
       growth_rate: 0.04,
     };
-    return this.quantClient.post<string>('/update_ggm_cache', payload);
+    return this.quantClient.post<string>('/main_app/update_ggm_cache', payload);
   }
   //[GET] GGM Result from Cache
   async getValuationGgm(symbol: string) {
     const upperSymbol = symbol.toUpperCase();
 
-    const endpoint = `/valuation_ggm/${upperSymbol}`;
+    const endpoint = `/main_app/valuation_ggm/${upperSymbol}`;
 
-    const ggmRaw = await this.quantClient.get<string>(endpoint);
+    try {
+      const ggmRaw = await this.quantClient.get<string>(endpoint);
+      const ggmResult = (
+        typeof ggmRaw === 'string' ? JSON.parse(ggmRaw) : ggmRaw
+      ) as GgmApiResponse;
 
-    const ggmResult = (
-      typeof ggmRaw === 'string' ? JSON.parse(ggmRaw) : ggmRaw
-    ) as GgmApiResponse;
+      // ตรวจสอบว่าถ้า data เป็น Object ก้อนเดียว ให้หุ้มด้วย [ ] เพื่อให้เป็น Array
+      const rawData = ggmResult.data;
+      const ggmList = Array.isArray(rawData)
+        ? rawData
+        : rawData
+          ? [rawData]
+          : [];
 
-    // ตรวจสอบว่าถ้า data เป็น Object ก้อนเดียว ให้หุ้มด้วย [ ] เพื่อให้เป็น Array
-    const rawData = ggmResult.data;
-    const ggmList = Array.isArray(rawData) ? rawData : rawData ? [rawData] : [];
+      const mapData = ggmList.map((ggm) => {
+        return {
+          symbol: ggm.Symbol.split('.')[0],
+          currentPrice: ggm.Current_Price,
+          predictPrice: ggm.Pred_Price,
+          diffPercent: ggm.Diff_Percent,
+          meaning: ggm.Meaning,
+          dividendsFlow: ggm.Dividends_Flow,
+        };
+      });
 
-    const mapData = ggmList.map((ggm) => {
       return {
-        symbol: ggm.Symbol.split('.')[0],
-        currentPrice: ggm.Current_Price,
-        predictPrice: ggm.Pred_Price,
-        diffPercent: ggm.Diff_Percent,
-        meaning: ggm.Meaning,
-        dividendsFlow: ggm.Dividends_Flow,
+        status: ggmResult.status,
+        source: ggmResult.source,
+        count: ggmResult.count,
+        data: mapData,
       };
-    });
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        this.syncService.handleAnalysisUpdate().catch(() => {});
 
-    return {
-      status: ggmResult.status,
-      source: ggmResult.source,
-      count: ggmResult.count,
-      data: mapData,
-    };
+        throw new ConflictException({
+          message:
+            'ระบบตรวจพบว่าข้อมูลยังไม่พร้อม กำลังเริ่มการคำนวณใหม่ กรุณารอประมาณ 1-2 นาที',
+          status: 'PROCESSING',
+        });
+      }
+      throw error;
+    }
   }
 }
