@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { StockAnalysisService } from './stockAnalysis.service';
 
@@ -7,7 +13,10 @@ export class StockAnalysisSyncService implements OnModuleInit {
   private readonly logger = new Logger(StockAnalysisSyncService.name);
   private isAnalyzing = false;
 
-  constructor(private readonly stockAnalysisService: StockAnalysisService) {}
+  constructor(
+    @Inject(forwardRef(() => StockAnalysisService))
+    private readonly stockAnalysisService: StockAnalysisService,
+  ) {}
 
   // 1. Method สำหรับรันกระบวนการวิเคราะห์แยกต่างหาก
   async handleAnalysisUpdate() {
@@ -15,35 +24,43 @@ export class StockAnalysisSyncService implements OnModuleInit {
       this.logger.warn('⚠️ Analysis update is already in progress...');
       return;
     }
-
     this.isAnalyzing = true;
-    this.logger.log(
-      '📊 Starting Automated Analysis Update (TEMA & Scoring)...',
-    );
 
     try {
-      // ขั้นตอนที่ 1: อัปเดต Indicator (TEMA/MACD/RSI)
-      this.logger.log('⏳ Updating Indicator Cache...');
-      await this.stockAnalysisService.updateIndicator({ start_year: 2022 });
-      // ขั้นตอนที่ 2: อัปเดต Scoring (TDTS/Clusters)
-      this.logger.log('⏳ Updating Scoring Cache...');
-      await this.stockAnalysisService.updateScoring({
-        start_year: 2022,
-        end_year: new Date().getFullYear(),
-        window: 15,
-        threshold: 20,
-      });
+      const health = await this.stockAnalysisService.getHealthCheck();
+      const cache = health.cache_status;
 
-      // ขั้นตอนที่ 3: อัปเดต GGM
-      this.logger.log('⏳ Updating GGM Cache...');
-      await this.stockAnalysisService.updateGgm({
-        tickers: ['string'],
-        years: 3,
-        r_expected: 0.1,
-        growth_rate: 0.04,
-      });
+      this.logger.log('ตรวจสอบสถานะ Cache ก่อนรันงาน...');
 
-      this.logger.log('✅ Analysis Cache Update Finished Successfully.');
+      // 1. เช็คพวก Indicator พื้นฐานก่อน (Technical, TEMA, TDTS)
+      if (cache.technical_count === 0 || cache.tema_count === 0) {
+        this.logger.warn('Indicator ขาดหาย! กำลังสั่ง Update Indicators...');
+        await this.stockAnalysisService.updateIndicator({ start_year: 2022 });
+      }
+
+      // 2. เช็ค Scoring (ถ้า Indicator มีแล้วแต่ Scoring ยังไม่มี)
+      if (cache.scoring_count === 0) {
+        this.logger.warn('Scoring ขาดหาย! กำลังสั่ง Update Scoring...');
+        await this.stockAnalysisService.updateScoring({
+          start_year: 2022,
+          end_year: 2026,
+          window: 15,
+          threshold: 20,
+        });
+      }
+
+      // 3. เช็ค GGM
+      if (cache.ggm_count === 0) {
+        this.logger.warn('GGM ขาดหาย! กำลังสั่ง Update GGM...');
+        await this.stockAnalysisService.updateGgm({
+          tickers: ['string'],
+          years: 3,
+          r_expected: 0.1,
+          growth_rate: 0.04,
+        });
+      }
+
+      this.logger.log('✅ Selective Cache Update Finished.');
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);

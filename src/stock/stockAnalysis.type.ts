@@ -109,3 +109,14 @@ export interface GgmApiResponse {
   count: number;
   data: GgmValuationRaw[];
 }
+
+export interface HealthCheckResponse {
+  cache_status: {
+    scoring_count: number;
+    tdts_count: number;
+    tema_count: number;
+    technical_count: number;
+    seasonality_count: number;
+    ggm_count: number;
+  };
+}

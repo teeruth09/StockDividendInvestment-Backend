@@ -8,6 +8,8 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT') || 3000;
 
+  const nodeEnv = configService.get<string>('NODE_ENV') || 'development';
+
   app.enableCors({
     origin: [
       'http://localhost:8080',
@@ -19,6 +21,6 @@ async function bootstrap() {
   });
 
   await app.listen(port, '0.0.0.0');
-  console.log(`Application is running on port:${port}`);
+  console.log(`Application is running on port:${port} in [${nodeEnv}] mode`);
 }
 bootstrap();
