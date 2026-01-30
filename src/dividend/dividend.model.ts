@@ -12,13 +12,21 @@ export class Dividend {
 export class DividendReceived {
   received_id: string;
   user_id: string;
-  dividend_id: string;
+
+  //ระบุสถานะให้ชัดเจน
+  status: 'PREDICTED' | 'CONFIRMED' | 'RECEIVED';
+  //เป็น null เพราะถ้ายังไม่ประกาศจ่ายจริง จะไม่มี ID นี้
+  dividend_id: string | null;
+
   shares_held: number;
   gross_dividend: number; //ปันผลเต็มก่อนหักภาษี
   withholding_tax: number; //หัก ณ ที่จ่ายปันผล
   net_dividend_received: number; //ปันผลสุทธิของหุ้น
   payment_received_date?: Date | null;
   created_at: Date;
+
+  predicted_stock_symbol: string | null;
+  prediction_date: Date | null;
 
   // ความสัมพันธ์ (Optional fields)
   // user?: User;

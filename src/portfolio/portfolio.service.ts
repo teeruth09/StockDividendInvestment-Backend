@@ -37,13 +37,15 @@ export class PortfolioService {
     stockSymbol: string,
     targetDate: Date,
   ): Promise<number> {
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
     // 1. ดึงรายการซื้อขายทั้งหมดจนถึงวันเป้าหมาย (รวมวันเป้าหมายด้วย)
     const transactions = await this.prisma.transaction.findMany({
       where: {
         user_id: userId,
         stock_symbol: stockSymbol,
         transaction_date: {
-          lte: targetDate, //น้อยกว่าหรือเท่ากับวันเป้าหมาย
+          lte: endOfDay, //น้อยกว่าหรือเท่ากับวันเป้าหมาย
         },
       },
       select: {

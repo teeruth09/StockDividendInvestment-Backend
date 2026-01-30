@@ -104,7 +104,9 @@ model Transaction {
 model DividendReceived {
   received_id         String   @id @default(cuid())
   user_id             String
-  dividend_id         String
+  status              DividendStatus @default(PREDICTED)
+  // 1. เชื่อมไปยังรอบ XD จริง (Optional)
+  dividend_id         String?
   shares_held         Int  //จำนวนหุ้นที่ถือไว้ในวัน record
   gross_dividend      Float //ปันผลรวก่อนหักภาษี
   withholding_tax     Float //ภาษีที่หัก 10% ไว้
@@ -112,10 +114,23 @@ model DividendReceived {
   payment_received_date DateTime? // เพิ่มคอลัมน์นี้เพื่อความชัดเจน
   created_at          DateTime @default(now())
 
+  // 2. เชื่อมไปยังรอบที่ Predict ไว้ (Optional)
+  // ต้องรับทั้ง Symbol และ Date เพราะเป็น Composite Key
+  predicted_stock_symbol String?
+  prediction_date        DateTime?
+
   // ความสัมพันธ์
   user                User     @relation(fields: [user_id], references: [user_id])
-  dividend            Dividend @relation(fields: [dividend_id], references: [dividend_id])
+  dividend            Dividend? @relation(fields: [dividend_id], references: [dividend_id])
   taxCredit           TaxCredit? // Optional one-to-one
+  prediction             Prediction? @relation(fields: [predicted_stock_symbol, prediction_date], references: [stock_symbol, prediction_date])
+
+  
+  // 1. สำหรับ Actual: หนึ่งรอบปันผลต่อหนึ่ง User ต้องมีแค่ Record เดียว
+  // 2. สำหรับ Predict: หนึ่งรอบคาดการณ์ต่อหนึ่ง User ต้องมีแค่ Record เดียว
+  @@unique([user_id, dividend_id], name: "user_dividend_unique")
+  @@unique([user_id, predicted_stock_symbol, prediction_date], name: "user_prediction_unique")
+
 }
 
 //ตารางเครดิตภาษี (ใช้ received_id เป็น FK)
@@ -185,6 +200,8 @@ model Prediction {
   model_version            String?
   prediction_horizon_days  Int?
 
+  dividendReceiveds       DividendReceived[]
+
   // ความสัมพันธ์
   stock                    Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
 
@@ -212,4 +229,10 @@ model MarketHoliday {
   holiday_date DateTime @id @db.Date
   description  String?  @default("Market Closed / No Data")
   created_at    DateTime @default(now())
+}
+
+enum DividendStatus {
+  PREDICTED // ใช้ข้อมูลจากการคาดการณ์
+  CONFIRMED // ยืนยันแล้วแต่ยังไม่จ่าย (มี Dividend ID จริง)
+  RECEIVED  // ได้รับเงินเรียบร้อยแล้ว
 }

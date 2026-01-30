@@ -68,18 +68,24 @@ export class DividendController {
   @HttpCode(HttpStatus.ACCEPTED) // คืนค่า 202 ACCEPTED
   // @UseGuards(AdminGuard)
   async triggerCalculation(
-    @Param('dividendId') dividendId: string,
+    @Body()
+    body: {
+      dividendId?: string;
+      predictionId?: { symbol: string; date: string };
+    },
   ): Promise<{ message: string; count: number }> {
+    const { dividendId, predictionId } = body;
     console.log(`Triggering dividend calculation for ID: ${dividendId}`);
     try {
-      const receivedRecords =
-        await this.dividendService.calculateAndCreateReceivedDividends(
+      const result =
+        await this.dividendService.calculateAndCreateReceivedDividends({
           dividendId,
-        );
+          predictionId,
+        });
 
       return {
-        message: `Dividend calculation completed. ${receivedRecords.length} records generated.`,
-        count: receivedRecords.length,
+        message: `Dividend calculation completed. ${result.length} records generated.`,
+        count: result.length,
       };
     } catch (error) {
       // ดักจับ Error ที่เกิดจากการเรียกซ้ำซ้อน
