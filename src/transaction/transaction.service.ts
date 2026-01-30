@@ -1,8 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  InternalServerErrorException,
+  Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from './../prisma.service';
 import { StockService } from './../stock/stock.service';
@@ -13,12 +16,19 @@ import {
   TransactionInput,
   TransactionType,
 } from './transaction.model';
+import { DividendService } from 'src/dividend/dividend.service';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 @Injectable()
 export class TransactionService {
+  private readonly logger = new Logger(TransactionService.name);
   constructor(
     private prisma: PrismaService,
     private stockService: StockService,
+    @Inject(forwardRef(() => DividendService))
+    private dividendService: DividendService,
+    @Inject(forwardRef(() => PortfolioService))
+    private portfolioService: PortfolioService,
   ) {}
 
   /**
@@ -26,148 +36,105 @@ export class TransactionService {
    */
   async createTransaction(
     data: TransactionInput,
-    type: TransactionType, // 'BUY' | 'SELL'
+    type: TransactionType,
   ): Promise<Transaction> {
     const {
       user_id,
       stock_symbol,
       quantity,
-      price_per_share, // ราคาที่ผู้ใช้กรอก
+      price_per_share,
       commission,
       transaction_date,
     } = data;
 
-    // ตรวจสอบเบื้องต้น
+    // --- ส่วนที่ 1: Validation (เหมือนเดิม) ---
     if (quantity <= 0 || price_per_share <= 0) {
       throw new BadRequestException(
         'Quantity and Price must be positive numbers.',
       );
     }
 
-    // 1. ตรวจสอบว่ามีหุ้นในระบบหรือไม่
     const stock = await this.prisma.stock.findUnique({
       where: { stock_symbol },
     });
     if (!stock)
       throw new NotFoundException(`Stock symbol ${stock_symbol} not found.`);
 
-    // ===============================================
-    // 2. ดึงและยืนยันราคาย้อนหลัง (Validation)
-    // ===============================================
-    const transactionDateString = transaction_date.toString();
+    const marketClosePrice = await this.stockService.getPriceByDate(
+      stock_symbol,
+      transaction_date.toString(),
+    );
 
-    let marketClosePrice: number;
-    try {
-      console.log(transactionDateString);
-      marketClosePrice = await this.stockService.getPriceByDate(
-        stock_symbol,
-        transactionDateString,
-      );
-    } catch (error) {
-      // ดักจับข้อผิดพลาดหากไม่พบราคา ณ วันนั้น (เช่น วันหยุดตลาด)
-      console.log('error', error);
-      throw new NotFoundException(
-        `Market price not available for ${stock_symbol} on ${transactionDateString}.`,
-      );
-    }
-
-    const priceTolerance = 0.05; // 5 สตางค์
+    const priceTolerance = 0.05;
     if (Math.abs(price_per_share - marketClosePrice) > priceTolerance) {
-      console.log(
-        `price_per_share:${price_per_share},marketClose:${marketClosePrice}`,
-      );
-      throw new BadRequestException(
-        `Price per share (${price_per_share}) is outside the acceptable range of market price (${marketClosePrice}). Tolerance: ${priceTolerance} THB.`,
-      );
+      throw new BadRequestException(`Price outside acceptable range.`);
     }
 
-    // ประกาศตัวแปรสำหรับ Total Amount ที่คำนวณใหม่และ Realized P/L
-    let calculatedTotalAmount: number;
-    let realizedGainLoss: number | null = null;
-    // ใช้ Prisma Transaction เพื่อให้มั่นใจว่าการบันทึกและอัปเดต Portfolio สำเร็จพร้อมกัน
-    return this.prisma.$transaction(async (tx) => {
-      // 3. ตรวจสอบ Portfolio เดิม
+    // --- ส่วนที่ 2: ดำเนินการใน Database (Prisma Transaction) ---
+    // เราจะเก็บผลลัพธ์ไว้ในตัวแปร result เพื่อ return ออกไปในตอนท้าย
+    const result = await this.prisma.$transaction(async (tx) => {
       const existingPortfolio = await tx.portfolio.findUnique({
-        where: { user_id_stock_symbol: { user_id: user_id, stock_symbol } },
+        where: { user_id_stock_symbol: { user_id, stock_symbol } },
       });
 
       let newAverageCost = existingPortfolio?.average_cost || 0;
       let newQuantity = existingPortfolio?.current_quantity || 0;
       let newTotalInvested = existingPortfolio?.total_invested || 0;
+      let calculatedTotalAmount = 0;
 
-      // 4. จัดการ Logic ตามประเภท Transaction (BUY/SELL)
       if (type === TransactionType.BUY) {
-        // Cost = (ราคาหุ้น * จำนวน) + Commission
         const transactionCost = quantity * price_per_share + commission;
-        calculatedTotalAmount = transactionCost; // กำหนดค่า Total Amount ที่ถูกต้อง
-        // อัปเดต Total Invested และ Quantity
+        calculatedTotalAmount = transactionCost;
         newQuantity += quantity;
         newTotalInvested += transactionCost;
-        // คำนวณต้นทุนเฉลี่ยใหม่ (Weighted Average Cost)
         newAverageCost = newTotalInvested / newQuantity;
       } else if (type === TransactionType.SELL) {
-        if (newQuantity < quantity) {
+        // 1. เช็คหุ้นที่มี "ณ วันที่ขาย" (Backdate Check)
+        const sharesOnDate = await this.portfolioService.getSharesHeldOnDate(
+          user_id,
+          stock_symbol,
+          new Date(transaction_date),
+        );
+        if (sharesOnDate < quantity) {
           throw new BadRequestException(
-            'Insufficient shares to sell in portfolio.',
+            `ยอดหุ้นไม่พอขายในวันที่ระบุ: ณ วันที่ ${new Date(transaction_date).toLocaleDateString()} คุณมีหุ้นเพียง ${sharesOnDate} หุ้น`,
           );
         }
-
-        // Proceeds = (ราคาหุ้น * จำนวน) - Commission
+        // 2. เช็คหุ้นที่มี "ปัจจุบัน" (Overall Check - กันกรณีขายเกินพอร์ตล่าสุด)
+        if (newQuantity < quantity)
+          throw new BadRequestException('จำนวนหุ้นไม่เพียงพอต่อการขาย');
         const transactionProceeds = quantity * price_per_share - commission;
-        calculatedTotalAmount = transactionProceeds; // กำหนดค่า Total Amount ที่ถูกต้อง
-
-        // คำนวณกำไร/ขาดทุนที่รับรู้ (Realized P/L)
+        calculatedTotalAmount = transactionProceeds;
         const costBasisSold = quantity * newAverageCost;
-        realizedGainLoss = transactionProceeds - costBasisSold;
-
-        console.log(
-          `Realized P/L for ${stock_symbol} SELL: ${realizedGainLoss}`,
-        );
-
-        // อัปเดต Quantity
         newQuantity -= quantity;
-
-        // ลด Total Invested ตาม Cost Basis ที่ขายไป
         newTotalInvested -= costBasisSold;
-
-        // ถ้าขายหมด ต้องรีเซ็ต Total Invested และ Average Cost
         if (newQuantity === 0) {
           newTotalInvested = 0;
           newAverageCost = 0;
-        } else if (newTotalInvested < 0) {
-          // ป้องกัน Total Invested เป็นค่าลบจากการปัดเศษ
-          newTotalInvested = 0;
         }
       }
 
-      // 5. บันทึก Transaction
       const transactionDateForPrisma = new Date(transaction_date);
 
-      if (isNaN(transactionDateForPrisma.getTime())) {
-        throw new InternalServerErrorException(
-          'Failed to parse date for database.',
-        );
-      }
-
-      const transactionRecord = (await tx.transaction.create({
+      // บันทึกรายการ
+      const transactionRecord = await tx.transaction.create({
         data: {
           ...data,
-          // 💡 ใช้ calculatedTotalAmount ที่คำนวณถูกต้องแล้ว
           total_amount: calculatedTotalAmount,
           transaction_date: transactionDateForPrisma,
           user_id: user_id,
           transaction_type: type,
         },
-      })) as Transaction;
-      // 6. อัปเดต/สร้าง Portfolio
+      });
+
+      // อัปเดต Portfolio
       if (newQuantity === 0 && existingPortfolio) {
-        // ถ้าขายหมด ให้ลบรายการออกจาก Portfolio
         await tx.portfolio.delete({
-          where: { user_id_stock_symbol: { user_id: user_id, stock_symbol } },
+          where: { user_id_stock_symbol: { user_id, stock_symbol } },
         });
       } else {
         await tx.portfolio.upsert({
-          where: { user_id_stock_symbol: { user_id: user_id, stock_symbol } },
+          where: { user_id_stock_symbol: { user_id, stock_symbol } },
           update: {
             current_quantity: newQuantity,
             total_invested: newTotalInvested,
@@ -175,8 +142,8 @@ export class TransactionService {
             last_transaction_date: transactionDateForPrisma,
           },
           create: {
-            user_id: user_id,
-            stock_symbol: stock_symbol,
+            user_id,
+            stock_symbol,
             current_quantity: newQuantity,
             total_invested: newTotalInvested,
             average_cost: newAverageCost,
@@ -185,8 +152,21 @@ export class TransactionService {
         });
       }
 
-      return transactionRecord;
+      return transactionRecord as Transaction; // คืนค่าออกไปหาตัวแปร result
     });
+
+    // --- ส่วนที่ 3: Sync ปันผล (อยู่นอก Transaction เพื่อให้เห็นข้อมูลที่ Commit แล้ว) ---
+    try {
+      await this.syncDividendAfterTrade(
+        stock_symbol,
+        new Date(transaction_date),
+      );
+    } catch (error) {
+      console.error(`Dividend Sync Failed for ${stock_symbol}:`, error);
+    }
+
+    // คืนค่า Transaction
+    return result;
   }
 
   // ===================================
@@ -244,5 +224,45 @@ export class TransactionService {
       ...transaction,
       transaction_type: transaction.transaction_type as TransactionType,
     } as Transaction;
+  }
+
+  /**
+   * ฟังก์ชันช่วยในการตัดสินใจว่าจะ Sync แบบ Actual หรือ Predict
+   */
+  private async syncDividendAfterTrade(
+    symbol: string,
+    transactionDateString: Date,
+  ) {
+    // 1. หา "รอบปันผลที่ใกล้ที่สุด" ที่ User ควรจะได้จากการซื้อครั้งนี้
+    const nearDividend = await this.dividendService.findNearFutureDividend(
+      symbol,
+      transactionDateString,
+    );
+
+    if (!nearDividend) {
+      this.logger.log(
+        `No upcoming dividend or prediction found for ${symbol}.`,
+      );
+      return;
+    }
+
+    // 2. เรียกใช้ฟังก์ชันคำนวณและบันทึก (Upsert)
+    // โดยส่ง Parameter ให้ตรงตามประเภทที่หาได้
+    if (nearDividend.type === 'ACTUAL') {
+      await this.dividendService.calculateAndCreateReceivedDividends({
+        dividendId: nearDividend.data.dividend_id,
+      });
+    } else if (nearDividend.type === 'PREDICTED') {
+      const predictionData = nearDividend.data as any;
+      console.log(predictionData);
+
+      await this.dividendService.calculateAndCreateReceivedDividends({
+        predictionId: {
+          symbol: symbol,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument
+          date: new Date(predictionData.prediction_date).toISOString(),
+        },
+      });
+    }
   }
 }
