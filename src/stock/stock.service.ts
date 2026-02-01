@@ -324,7 +324,7 @@ export class StockService {
       dbDates,
       holidayDates,
     );
-    console.log(missingRanges);
+    //console.log(missingRanges);
 
     if (missingRanges.length === 0) {
       this.logger.log(

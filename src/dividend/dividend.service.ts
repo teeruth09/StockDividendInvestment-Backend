@@ -43,6 +43,7 @@ export class DividendService {
       let record_date: Date;
       let dividend_per_share: number;
       let payment_date: Date | null;
+      let predicted_ex_date: Date | null = null;
       let status: 'PREDICTED' | 'CONFIRMED' = 'CONFIRMED';
       // --- ส่วนที่ 1: ดึงข้อมูลแหล่งที่มา (Actual หรือ Prediction) ---
       if (dividendId) {
@@ -73,6 +74,7 @@ export class DividendService {
         });
         if (!pred) throw new NotFoundException('Prediction not found');
         stock_symbol = pred.stock_symbol;
+        predicted_ex_date = pred.predicted_ex_dividend_date;
         record_date = pred.predicted_record_date || pred.prediction_date;
         dividend_per_share = pred.predicted_dividend_per_share || 0;
         payment_date = pred.predicted_payment_date;
@@ -134,6 +136,7 @@ export class DividendService {
               net_dividend_received: netDividendReceived,
               payment_received_date: payment_date,
               status: status, // เผื่อกรณีมีการ Update จาก Predicted เป็น Confirmed
+              predicted_ex_date: predicted_ex_date, //เผื่อมีการเปลี่ยนแปลง
             },
             create: {
               user_id,
@@ -144,6 +147,7 @@ export class DividendService {
               prediction_date: predictionId
                 ? new Date(predictionId.date)
                 : null,
+              predicted_ex_date: predicted_ex_date, //บันทึกค่าเพื่อเอาไปโชว์หน้าบ้าน
               shares_held: sharesAtRecordDate,
               gross_dividend: grossDividend,
               withholding_tax: withholdingTax,

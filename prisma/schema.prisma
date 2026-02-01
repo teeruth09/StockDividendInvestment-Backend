@@ -118,6 +118,8 @@ model DividendReceived {
   // ต้องรับทั้ง Symbol และ Date เพราะเป็น Composite Key
   predicted_stock_symbol String?
   prediction_date        DateTime?
+  // ใช้ในการแสดงผล XD ของรอบ Predict
+  predicted_ex_date      DateTime?
 
   // ความสัมพันธ์
   user                User     @relation(fields: [user_id], references: [user_id])
