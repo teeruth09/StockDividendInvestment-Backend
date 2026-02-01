@@ -203,7 +203,7 @@ export class PortfolioService {
     //   10,
     //   testDate,
     // );
-    console.log(records);
+    //console.log(records);
 
     const upcomingDividends: UpcomingDividend[] = [];
 
