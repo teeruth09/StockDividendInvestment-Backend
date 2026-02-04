@@ -1,3 +1,4 @@
+import { DividendAnalysisService } from './dividendAnalysis.service';
 import {
   Controller,
   Get,
@@ -23,7 +24,10 @@ import { UserId } from 'src/auth/decorators/user-id.decorator';
 
 @Controller('dividends')
 export class DividendController {
-  constructor(private readonly dividendService: DividendService) {}
+  constructor(
+    private readonly dividendService: DividendService,
+    private readonly dividendAnalysisService: DividendAnalysisService,
+  ) {}
 
   // ********************************************************
   // 1. ดึงรายการประกาศปันผลทั้งหมด (Global/Filter by Symbol)
@@ -70,15 +74,17 @@ export class DividendController {
   async triggerCalculation(
     @Body()
     body: {
+      userId: string;
       dividendId?: string;
       predictionId?: { symbol: string; date: string };
     },
   ): Promise<{ message: string; count: number }> {
-    const { dividendId, predictionId } = body;
+    const { userId, dividendId, predictionId } = body;
     console.log(`Triggering dividend calculation for ID: ${dividendId}`);
     try {
       const result =
         await this.dividendService.calculateAndCreateReceivedDividends({
+          userId,
           dividendId,
           predictionId,
         });
@@ -129,5 +135,35 @@ export class DividendController {
     const y = year ? parseInt(year) : undefined;
 
     return this.dividendService.getDividendCalendar(m, y);
+  }
+
+  /*
+    Connect Backend nestjs to FastAPI
+    API List 
+    1.update seasonality cache เป็นการ update seasonality หุ้นแต่ละตัว ดูประวัติปันผล
+    2.dividend countdown ดูวันที่น่าจะปันผลของหุ้นแต่ละตัว
+  */
+
+  /*
+    [POST] คำนวณสถิติปันผล SET50 ทั้งหมดเก็บลง Cache (Min/Max/Avg/Countdown)
+  */
+
+  @Post('update-seasonality-cache')
+  async postUpdateSeasonality() {
+    return this.dividendAnalysisService.updateSeasonality();
+  }
+
+  /*
+    [GET] ดูวันนับถอยหลัง (Countdown Days) Input: ชื่อหุ้น (เช่น 'PTT') หรือ 'SET50'
+  */
+
+  @Get('dividend-countdown/:symbol')
+  async getDividendCountdown(@Param('symbol') symbol: string) {
+    return this.dividendAnalysisService.getDividendCountdown(symbol);
+  }
+
+  @Post('update-xd/:symbol')
+  async syncPredictionToDatabase(@Param('symbol') symbol: string) {
+    return this.dividendAnalysisService.syncPredictionToDatabase(symbol);
   }
 }

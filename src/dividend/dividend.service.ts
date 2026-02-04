@@ -33,10 +33,11 @@ export class DividendService {
    * @returns Array ของรายการปันผลที่ถูกบันทึก
    */
   async calculateAndCreateReceivedDividends(params: {
+    userId: string;
     dividendId?: string;
     predictionId?: { symbol: string; date: string };
   }): Promise<DividendReceivedModel[]> {
-    const { dividendId, predictionId } = params;
+    const { userId, dividendId, predictionId } = params;
     // 1. ห่อหุ้มด้วย Transaction เพื่อให้การตรวจสอบและอัปเดตสถานะเป็น Atomic
     return this.prisma.$transaction(async (tx) => {
       let stock_symbol: string;
@@ -66,9 +67,9 @@ export class DividendService {
       } else if (predictionId) {
         const pred = await tx.prediction.findUnique({
           where: {
-            stock_symbol_prediction_date: {
+            stock_symbol_predicted_ex_dividend_date: {
               stock_symbol: predictionId.symbol,
-              prediction_date: new Date(predictionId.date),
+              predicted_ex_dividend_date: new Date(predictionId.date),
             },
           },
         });
@@ -85,129 +86,119 @@ export class DividendService {
         );
       }
 
-      // 2. ดึงผู้ใช้ทั้งหมดที่เคยทำรายการซื้อ/ขายหุ้นตัวนี้ (ใช้ tx)
-      const uniqueUsers = await tx.transaction.findMany({
-        where: { stock_symbol },
-        select: { user_id: true },
-        distinct: ['user_id'],
-      });
-
       const receivedDividends: DividendReceivedModel[] = [];
 
-      // 3. วนลูปคำนวณสิทธิ์ให้ผู้ใช้แต่ละราย
-      for (const { user_id } of uniqueUsers) {
-        // 3.1 ตรวจสอบจำนวนหุ้นสุทธิที่ถือครอง ณ Record Date
-        const sharesAtRecordDate =
-          await this.portfolioService.getSharesHeldOnDate(
-            user_id,
-            stock_symbol,
-            record_date,
-          );
-
-        console.log(
-          // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-          `Debug: User ${user_id} holds ${sharesAtRecordDate} shares on ${record_date}`,
+      const sharesAtRecordDate =
+        await this.portfolioService.getSharesHeldOnDate(
+          userId,
+          stock_symbol,
+          record_date,
         );
-        console.log(`Debug: Dividend Per Share is ${dividend_per_share}`);
 
-        // 3.2 ถ้ามียอดหุ้นที่ถือครองในวัน Record Date และปันผลต่อหุ้นมากกว่า 0
-        if (sharesAtRecordDate > 0 && dividend_per_share > 0) {
-          // 4. คำนวณยอดปันผล
-          const grossDividend = sharesAtRecordDate * dividend_per_share;
-          const withholdingTaxRate = 0.1;
-          const withholdingTax = grossDividend * withholdingTaxRate;
-          const netDividendReceived = grossDividend - withholdingTax;
+      console.log(
+        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+        `Debug: User ${userId} holds ${sharesAtRecordDate} shares on ${record_date}`,
+      );
+      console.log(`Debug: Dividend Per Share is ${dividend_per_share}`);
 
-          // 5. บันทึกรายการปันผลที่ได้รับจริง (ใช้ tx)
-          const record = (await tx.dividendReceived.upsert({
-            where: dividendId
-              ? { user_dividend_unique: { user_id, dividend_id: dividendId } }
-              : {
-                  user_prediction_unique: {
-                    user_id,
-                    predicted_stock_symbol: predictionId!.symbol,
-                    prediction_date: new Date(predictionId!.date),
-                  },
+      // 3.2 ถ้ามียอดหุ้นที่ถือครองในวัน Record Date และปันผลต่อหุ้นมากกว่า 0
+      if (sharesAtRecordDate > 0 && dividend_per_share > 0) {
+        // 4. คำนวณยอดปันผล
+        const grossDividend = sharesAtRecordDate * dividend_per_share;
+        const withholdingTaxRate = 0.1;
+        const withholdingTax = grossDividend * withholdingTaxRate;
+        const netDividendReceived = grossDividend - withholdingTax;
+
+        // 5. บันทึกรายการปันผลที่ได้รับจริง (ใช้ tx)
+        const record = (await tx.dividendReceived.upsert({
+          where: dividendId
+            ? {
+                user_dividend_unique: {
+                  user_id: userId,
+                  dividend_id: dividendId,
                 },
-            update: {
-              shares_held: sharesAtRecordDate,
-              gross_dividend: grossDividend,
-              withholding_tax: withholdingTax,
-              net_dividend_received: netDividendReceived,
-              payment_received_date: payment_date,
-              status: status, // เผื่อกรณีมีการ Update จาก Predicted เป็น Confirmed
-              predicted_ex_date: predicted_ex_date, //เผื่อมีการเปลี่ยนแปลง
-            },
-            create: {
-              user_id,
-              status: status,
-              dividend_id: dividendId || null,
-              // ผูก Composite FK ไปยัง Prediction ถ้าเป็นโหมด Predict
-              predicted_stock_symbol: predictionId ? predictionId.symbol : null,
-              prediction_date: predictionId
-                ? new Date(predictionId.date)
-                : null,
-              predicted_ex_date: predicted_ex_date, //บันทึกค่าเพื่อเอาไปโชว์หน้าบ้าน
-              shares_held: sharesAtRecordDate,
-              gross_dividend: grossDividend,
-              withholding_tax: withholdingTax,
-              net_dividend_received: netDividendReceived,
-              payment_received_date: payment_date,
-              created_at: new Date(),
-            },
-          })) as DividendReceivedModel;
-
-          receivedDividends.push(record);
-
-          // 6. Trigger คำนวณเครดิตภาษี (ใช้ Service ภายนอก)
-          try {
-            // แม้จะเรียก Service ภายนอก แต่ถ้าเกิด Error ก่อนถึงจุดนี้ Transaction จะ Rollback
-            // พอ taxCreditService วิ่งไปใช้ this.prisma.dividendReceived.findUnique (ซึ่งเป็นคนละ Instance/Connection กับ tx) มันเลยมองไม่เห็นข้อมูลที่เพิ่งสร้าง
-            await this.taxCreditService.calculateTaxCredit(
-              record.received_id,
-              tx,
-            );
-          } catch (error) {
-            console.error(
-              `Failed to calculate tax credit for Received ID ${record.received_id}:`,
-              error,
-            );
-            // 💡 ในกรณีนี้ เราอนุญาตให้ดำเนินการต่อไปแม้ Tax Credit จะล้มเหลว
-          }
-        } else {
-          //กรณีหุ้น เป็น 0 (ขายก่อน XD) หรือไม่มีปันผล
-          // 1. หาข้อมูล DividendReceived ที่เข้าเงื่อนไขก่อน เพื่อเอา ID มาลบ TaxCredit
-          const recordsToDelete = await tx.dividendReceived.findMany({
-            where: dividendId
-              ? { user_id, dividend_id: dividendId }
-              : {
-                  user_id,
+              }
+            : {
+                user_prediction_unique: {
+                  user_id: userId,
                   predicted_stock_symbol: predictionId!.symbol,
-                  prediction_date: new Date(predictionId!.date),
+                  predicted_ex_date: new Date(predictionId!.date),
                 },
-            select: { received_id: true },
+              },
+          update: {
+            shares_held: sharesAtRecordDate,
+            gross_dividend: grossDividend,
+            withholding_tax: withholdingTax,
+            net_dividend_received: netDividendReceived,
+            payment_received_date: payment_date,
+            status: status, // เผื่อกรณีมีการ Update จาก Predicted เป็น Confirmed
+            predicted_ex_date: predicted_ex_date, //เผื่อมีการเปลี่ยนแปลง
+          },
+          create: {
+            user_id: userId,
+            status: status,
+            dividend_id: dividendId || null,
+            // ผูก Composite FK ไปยัง Prediction ถ้าเป็นโหมด Predict
+            predicted_stock_symbol: predictionId ? predictionId.symbol : null,
+            predicted_ex_date: predicted_ex_date, //บันทึกค่าเพื่อเอาไปโชว์หน้าบ้าน
+            shares_held: sharesAtRecordDate,
+            gross_dividend: grossDividend,
+            withholding_tax: withholdingTax,
+            net_dividend_received: netDividendReceived,
+            payment_received_date: payment_date,
+            created_at: new Date(),
+          },
+        })) as DividendReceivedModel;
+
+        receivedDividends.push(record);
+
+        // 6. Trigger คำนวณเครดิตภาษี (ใช้ Service ภายนอก)
+        try {
+          // แม้จะเรียก Service ภายนอก แต่ถ้าเกิด Error ก่อนถึงจุดนี้ Transaction จะ Rollback
+          // พอ taxCreditService วิ่งไปใช้ this.prisma.dividendReceived.findUnique (ซึ่งเป็นคนละ Instance/Connection กับ tx) มันเลยมองไม่เห็นข้อมูลที่เพิ่งสร้าง
+          await this.taxCreditService.calculateTaxCredit(
+            record.received_id,
+            tx,
+          );
+        } catch (error) {
+          console.error(
+            `Failed to calculate tax credit for Received ID ${record.received_id}:`,
+            error,
+          );
+        }
+      } else {
+        //กรณีหุ้น เป็น 0 (ขายก่อน XD) หรือไม่มีปันผล
+        // 1. หาข้อมูล DividendReceived ที่เข้าเงื่อนไขก่อน เพื่อเอา ID มาลบ TaxCredit
+        const recordsToDelete = await tx.dividendReceived.findMany({
+          where: dividendId
+            ? { user_id: userId, dividend_id: dividendId }
+            : {
+                user_id: userId,
+                predicted_stock_symbol: predictionId!.symbol,
+                predicted_ex_date: new Date(predictionId!.date),
+              },
+          select: { received_id: true },
+        });
+        if (recordsToDelete.length > 0) {
+          const ids = recordsToDelete.map((r) => r.received_id);
+
+          // 2. ลบตัวลูก (TaxCredit) ก่อน
+          await tx.taxCredit.deleteMany({
+            where: {
+              received_id: { in: ids },
+            },
           });
-          if (recordsToDelete.length > 0) {
-            const ids = recordsToDelete.map((r) => r.received_id);
 
-            // 2. ลบตัวลูก (TaxCredit) ก่อน
-            await tx.taxCredit.deleteMany({
-              where: {
-                received_id: { in: ids },
-              },
-            });
+          // 3. ลบตัวแม่ (DividendReceived) ตาม
+          await tx.dividendReceived.deleteMany({
+            where: {
+              received_id: { in: ids },
+            },
+          });
 
-            // 3. ลบตัวแม่ (DividendReceived) ตาม
-            await tx.dividendReceived.deleteMany({
-              where: {
-                received_id: { in: ids },
-              },
-            });
-
-            console.log(
-              `Cleared dividend and tax credit for ${user_id} (Shares became 0)`,
-            );
-          }
+          console.log(
+            `Cleared dividend and tax credit for ${userId} (Shares became 0)`,
+          );
         }
       }
 
@@ -450,7 +441,6 @@ export class DividendService {
         record_date: curr.predicted_record_date,
         payment_date: curr.predicted_payment_date,
         dividend_per_share: curr.predicted_dividend_per_share,
-        confidence_score: curr.confidence_score, // ข้อมูลเสริมเฉพาะ Prediction
       });
     });
 
@@ -503,7 +493,6 @@ export class DividendService {
           record_date: predictedDividend.predicted_record_date,
           payment_date: predictedDividend.predicted_payment_date,
           dividend_per_share: predictedDividend.predicted_dividend_per_share,
-          confidence_score: predictedDividend.confidence_score, // ส่งคะแนนความเชื่อมั่นไปด้วย
         },
         dividendPerShare: predictedDividend.predicted_dividend_per_share || 0,
       };

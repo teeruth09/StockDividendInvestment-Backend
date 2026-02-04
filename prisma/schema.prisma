@@ -117,7 +117,6 @@ model DividendReceived {
   // 2. เชื่อมไปยังรอบที่ Predict ไว้ (Optional)
   // ต้องรับทั้ง Symbol และ Date เพราะเป็น Composite Key
   predicted_stock_symbol String?
-  prediction_date        DateTime?
   // ใช้ในการแสดงผล XD ของรอบ Predict
   predicted_ex_date      DateTime?
 
@@ -125,13 +124,13 @@ model DividendReceived {
   user                User     @relation(fields: [user_id], references: [user_id])
   dividend            Dividend? @relation(fields: [dividend_id], references: [dividend_id])
   taxCredit           TaxCredit? // Optional one-to-one
-  prediction             Prediction? @relation(fields: [predicted_stock_symbol, prediction_date], references: [stock_symbol, prediction_date])
+  prediction             Prediction? @relation(fields: [predicted_stock_symbol, predicted_ex_date], references: [stock_symbol, predicted_ex_dividend_date])
 
   
   // 1. สำหรับ Actual: หนึ่งรอบปันผลต่อหนึ่ง User ต้องมีแค่ Record เดียว
   // 2. สำหรับ Predict: หนึ่งรอบคาดการณ์ต่อหนึ่ง User ต้องมีแค่ Record เดียว
   @@unique([user_id, dividend_id], name: "user_dividend_unique")
-  @@unique([user_id, predicted_stock_symbol, prediction_date], name: "user_prediction_unique")
+  @@unique([user_id, predicted_stock_symbol, predicted_ex_date], name: "user_prediction_unique")
 
 }
 
@@ -194,12 +193,10 @@ model UserTaxInfo {
 model Prediction {
   stock_symbol             String
   prediction_date          DateTime
-  predicted_ex_dividend_date DateTime?
+  predicted_ex_dividend_date DateTime
   predicted_record_date    DateTime?
   predicted_payment_date   DateTime?
   predicted_dividend_per_share Float?
-  confidence_score         Int?
-  model_version            String?
   prediction_horizon_days  Int?
 
   dividendReceiveds       DividendReceived[]
@@ -207,7 +204,7 @@ model Prediction {
   // ความสัมพันธ์
   stock                    Stock    @relation(fields: [stock_symbol], references: [stock_symbol])
 
-  @@id([stock_symbol, prediction_date])
+  @@id([stock_symbol, predicted_ex_dividend_date])
 }
 
 //Portfolio_Holdings View (เป็น Model ใน Prisma)

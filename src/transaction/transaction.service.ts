@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   BadRequestException,
@@ -18,6 +17,16 @@ import {
 } from './transaction.model';
 import { DividendService } from 'src/dividend/dividend.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+
+interface PredictionData {
+  dividend_id: string;
+  stock_symbol: string;
+  prediction_date: Date;
+  ex_dividend_date: Date;
+  record_date: Date | null;
+  payment_date: Date | null;
+  dividend_per_share: number | null;
+}
 
 @Injectable()
 export class TransactionService {
@@ -158,6 +167,7 @@ export class TransactionService {
     // --- ส่วนที่ 3: Sync ปันผล (อยู่นอก Transaction เพื่อให้เห็นข้อมูลที่ Commit แล้ว) ---
     try {
       await this.syncDividendAfterTrade(
+        user_id,
         stock_symbol,
         new Date(transaction_date),
       );
@@ -230,6 +240,7 @@ export class TransactionService {
    * ฟังก์ชันช่วยในการตัดสินใจว่าจะ Sync แบบ Actual หรือ Predict
    */
   private async syncDividendAfterTrade(
+    userId: string,
     symbol: string,
     transactionDateString: Date,
   ) {
@@ -250,17 +261,18 @@ export class TransactionService {
     // โดยส่ง Parameter ให้ตรงตามประเภทที่หาได้
     if (nearDividend.type === 'ACTUAL') {
       await this.dividendService.calculateAndCreateReceivedDividends({
+        userId: userId,
         dividendId: nearDividend.data.dividend_id,
       });
     } else if (nearDividend.type === 'PREDICTED') {
-      const predictionData = nearDividend.data as any;
+      const predictionData = nearDividend.data as PredictionData;
       console.log(predictionData);
 
       await this.dividendService.calculateAndCreateReceivedDividends({
+        userId: userId,
         predictionId: {
           symbol: symbol,
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument
-          date: new Date(predictionData.prediction_date).toISOString(),
+          date: new Date(predictionData.ex_dividend_date).toISOString(),
         },
       });
     }

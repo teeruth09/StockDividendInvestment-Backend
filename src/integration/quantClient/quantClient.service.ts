@@ -41,7 +41,7 @@ export class QuantClientService {
     }
   }
 
-  async post<T>(endpoint: string, data: any): Promise<T> {
+  async post<T>(endpoint: string, data?: any): Promise<T> {
     try {
       const { data: response } = await firstValueFrom(
         this.httpService.post<T>(`${this.baseUrl}${endpoint}`, data),
