@@ -235,7 +235,6 @@ export class StockService {
       predictions: stock.predictions?.map((p) => ({
         ...p,
         predicted_dividend_per_share: p.predicted_dividend_per_share ?? 0,
-        confidence_score: p.confidence_score ?? 0,
         prediction_horizon_days: p.prediction_horizon_days ?? 0,
       })),
     };
