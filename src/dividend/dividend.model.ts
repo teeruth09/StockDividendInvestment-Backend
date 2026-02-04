@@ -26,7 +26,6 @@ export class DividendReceived {
   created_at: Date;
 
   predicted_stock_symbol: string | null;
-  prediction_date: Date | null;
   predicted_ex_date: Date | null;
 
   // ความสัมพันธ์ (Optional fields)
@@ -37,7 +36,7 @@ export class DividendReceived {
 export class Prediction {
   stock_symbol: string;
   prediction_date: Date;
-  predicted_ex_dividend_date?: Date | null;
+  predicted_ex_dividend_date: Date | null;
   predicted_record_date?: Date | null;
   predicted_payment_date?: Date | null;
   predicted_dividend_per_share?: number | null;
