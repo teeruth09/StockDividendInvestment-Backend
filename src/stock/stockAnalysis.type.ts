@@ -97,7 +97,7 @@ export interface DividendFlow {
 export interface GgmValuationRaw {
   Symbol: string;
   Current_Price: number;
-  Pred_Price: number;
+  Target_Price: number;
   Diff_Percent: number;
   Meaning: string;
   Dividends_Flow: DividendFlow;
