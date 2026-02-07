@@ -308,7 +308,7 @@ export class StockAnalysisService {
         return {
           symbol: ggm.Symbol.split('.')[0],
           currentPrice: ggm.Current_Price,
-          predictPrice: ggm.Pred_Price,
+          predictPrice: ggm.Target_Price,
           diffPercent: ggm.Diff_Percent,
           meaning: ggm.Meaning,
           dividendsFlow: ggm.Dividends_Flow,
